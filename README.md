@@ -1,6 +1,6 @@
 # NestJS GraphQL Book CMS API
 
-![Nest Logo](https://nestjs.com/img/logo-small.svg)
+![Test Genesis Logo](test_genesis/logo.png)
 
 A progressive Node.js framework for building efficient and scalable server-side applications. This repository houses a NestJS GraphQL Book CMS API with authentication, authorization, and various entities like Book, Genre, User, User-details for TypeOrm PostgreSQL. It also utilizes UserActivityLog, Review, and BookStats stored in DynamoDB. The project includes microservice architecture with two main components: `api` and `test_genesis_consumer`, handling messages from SQS related to user activity and storing them in DynamoDb.
 
