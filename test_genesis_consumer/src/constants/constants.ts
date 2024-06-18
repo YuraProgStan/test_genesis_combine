@@ -1,0 +1,17 @@
+export const USER_ACTIVITY_TYPE = {
+  USER: {
+    USER_SIGNUP: 'USER_SIGNUP',
+    USER_SIGNIN: 'USER_SIGNIN',
+    USER_UPDATED: 'USER_UPDATED',
+    USER_DELETED: 'USER_DELETED',
+  },
+  BOOK: {
+    BOOK_CREATED: 'BOOK_CREATED',
+    BOOK_UPDATED: 'BOOK_UPDATED',
+    BOOK_DELETED: 'BOOK_DELETED',
+  },
+};
+
+export const QUEUE_TYPE = {
+  USER_ACTIVITY: 'useractivity',
+};

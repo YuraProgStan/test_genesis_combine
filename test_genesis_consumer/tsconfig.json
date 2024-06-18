@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "outDir": "./dist/src",  // Output directory for compiled JS files
+    "rootDir": "./src",      // Root directory for TypeScript source files
+    "esModuleInterop": true,
+    "strict": true,
+    "deleteOutDir": true,
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2021",
+    "sourceMap": true,
+    "baseUrl": "./src",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+    "strictBindCallApply": false,
+    "forceConsistentCasingInFileNames": false,
+    "noFallthroughCasesInSwitch": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules"]
+}

@@ -1,0 +1,393 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+type UserDetails {
+  id: Int!
+  username: String!
+  email: String!
+  fullname: String
+  age: Int
+}
+
+type User {
+  role: UserRoles!
+  status: UserStatus!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  details: UserDetails!
+  books: [Book]
+}
+
+"""User Roles Types"""
+enum UserRoles {
+  ADMIN
+  EDITOR
+  AUTHOR
+  USER
+}
+
+"""User Status Type"""
+enum UserStatus {
+  ACTIVE
+  DELETED
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+"""Genre model"""
+type Genre {
+  id: ID!
+  name: String!
+  description: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  books: [Book!]
+}
+
+"""Book model"""
+type Book {
+  """Id of the book"""
+  id: ID!
+
+  """Title of the book"""
+  title: String!
+
+  """Description of the book"""
+  description: String!
+
+  """Content of the book"""
+  content: String!
+  status: BookStatus!
+  publicationYear: Int
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  authors: [User]
+}
+
+"""Book Status Types"""
+enum BookStatus {
+  DRAFT
+  REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+type UserDetailsResponse {
+  id: ID!
+  username: String!
+  email: String!
+  fullname: String
+  age: Int
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type GenreResponse {
+  id: ID
+  name: String!
+  description: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+type BookEdge {
+  node: Book!
+  cursor: String!
+}
+
+type PageInfo {
+  startCursor: String
+  endCursor: String
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+}
+
+type BookPagination {
+  edges: [BookEdge!]!
+  pageInfo: PageInfo!
+  total: Int!
+}
+
+type BookAuthorCreateResponse {
+  id: ID!
+  username: String!
+}
+
+type BookResponse {
+  id: ID!
+  title: String!
+  description: String!
+  content: String!
+  authors: [BookAuthorCreateResponse!]
+  genres: [GenreResponse!]!
+  publicationYear: Int
+  status: String!
+  createdAt: DateTime!
+  updatedAt: DateTime
+}
+
+type UserResponse {
+  id: ID!
+  role: UserRoles!
+  status: UserStatus!
+  details: UserDetailsResponse!
+  books: [BookResponse!]!
+  createdAt: DateTime!
+  updatedAt: DateTime
+}
+
+type PasswordResponse {
+  message: String!
+}
+
+type AuthPayload {
+  access_token: String!
+}
+
+type UserDetailsWithoutPassword {
+  username: String!
+  email: String!
+}
+
+type UserWithDetailsWithoutPassword {
+  details: UserDetailsWithoutPassword!
+  id: Int!
+  role: UserRoles!
+}
+
+type MessageResponse {
+  message: String!
+}
+
+"""User activity log type."""
+type UserActivityLog {
+  activityId: ID!
+  userId: Int!
+  activityType: String!
+  timestamp: DateTime!
+}
+
+type DeleteActivitiesResponse {
+  message: String!
+}
+
+"""Review object type."""
+type Review {
+  reviewId: ID!
+  comment: String!
+  bookId: Int!
+  userId: Int!
+  rating: Int!
+  createdAt: DateTime!
+  updatedAt: DateTime
+}
+
+type ReviewResponse {
+  reviewId: ID!
+  comment: String!
+  bookId: Int!
+  userId: Int!
+  rating: Int!
+  createdAt: DateTime!
+  updatedAt: DateTime
+  totalVotes: Int!
+  meanRating: Float!
+}
+
+type ReviewsResponse {
+  reviews: [Review!]!
+  totalVotes: Int!
+  meanRating: Float!
+}
+
+type ReviewsPage {
+  reviews: [Review!]!
+  totalReviews: Int!
+  lastEvaluatedKey: String
+  firstEvaluatedKey: String
+}
+
+type Query {
+  users: [UserResponse!]!
+  user(id: ID!): UserResponse
+  genres: [Genre!]!
+  genre(id: ID!): Genre
+  getActivityLogs(userId: Int!): [UserActivityLog!]!
+  getActivityByType(timestamp: DateTime!, activityType: String!): [UserActivityLog!]!
+  findAllBooks(page: Int!, limit: Int!, filters: BookFilters): BookPagination!
+  book(id: ID!): Book!
+  review(reviewId: ID!): ReviewResponse!
+  reviewsByBookId(bookId: Int!): ReviewsResponse!
+  reviewsByUserId(userId: Int!): [Review!]!
+  reviews(limit: Int!, page: Int, offset: Int): ReviewsPage!
+}
+
+input BookFilters {
+  title: String
+  publicationYear: Int
+  author: String
+  sortBy: String
+  sortOrder: String
+}
+
+type Mutation {
+  signIn(email: String!, password: String!): AuthPayload!
+  signUp(createUserInput: CreateUserInput!): UserWithDetailsWithoutPassword
+  signOut: MessageResponse!
+  updateUser(id: Int!, updateUserInput: UpdateUserInput!): UserResponse!
+  removeUser(id: Int!): PasswordResponse!
+  changePassword(input: ChangePasswordInput!): PasswordResponse!
+  createGenre(createGenreInput: CreateGenreInput!): GenreResponse
+  updateGenre(id: Int!, updateGenreInput: UpdateGenreInput!): Genre!
+  removeGenre(id: Int!): Genre!
+  removeActivitiesByTimestampAndType(timestamp: DateTime!, activityType: String!): DeleteActivitiesResponse!
+  createBook(createBookInputDto: CreateBookInputDto!): BookResponse!
+  updateBook(id: Int!, updateBookInputDto: UpdateBookInputDto!): Book!
+  removeBook(id: Int!): Book!
+  createReview(createReviewInput: CreateReviewInput!): ReviewResponse!
+  updateReview(reviewId: String!, updateReviewInput: UpdateReviewInput!): Review!
+  removeReview(reviewId: ID!): Boolean!
+}
+
+"""Create user object type."""
+input CreateUserInput {
+  """A new user name"""
+  username: String!
+
+  """A new user email"""
+  email: String!
+
+  """A new user password"""
+  password: String!
+
+  """Confirm password"""
+  confirm: String!
+
+  """Role of the user"""
+  role: UserRoles
+
+  """Status of the user"""
+  status: UserStatus
+
+  """Full name of the user"""
+  fullname: String
+
+  """Age of the user"""
+  age: Int
+}
+
+input UpdateUserInput {
+  """A new user name"""
+  username: String
+
+  """A new user email"""
+  email: String
+
+  """A new user password"""
+  password: String
+
+  """Confirm password"""
+  confirm: String
+
+  """Role of the user"""
+  role: UserRoles
+
+  """Status of the user"""
+  status: UserStatus
+
+  """Full name of the user"""
+  fullname: String
+
+  """Age of the user"""
+  age: Int
+}
+
+input ChangePasswordInput {
+  id: ID!
+
+  """Old password for user"""
+  oldPassword: String!
+
+  """Old password for user"""
+  newPassword: String!
+}
+
+"""Create genre object type."""
+input CreateGenreInput {
+  """Genre name"""
+  name: String!
+
+  """Genre description"""
+  description: String
+}
+
+input UpdateGenreInput {
+  """Genre name"""
+  name: String
+
+  """Genre description"""
+  description: String
+}
+
+"""Create book object type."""
+input CreateBookInputDto {
+  """A new book title"""
+  title: String!
+
+  """A new book description"""
+  description: String!
+
+  """A new book content"""
+  content: String!
+
+  """A new book publication year"""
+  publicationYear: Int
+  genres: [ID!]!
+  authors: [ID!]!
+}
+
+input UpdateBookInputDto {
+  """A new book title"""
+  title: String
+
+  """A new book description"""
+  description: String
+
+  """A new book content"""
+  content: String
+
+  """A new book publication year"""
+  publicationYear: Int
+  genres: [ID!]
+  authors: [ID!]
+
+  """The updated book status"""
+  status: BookStatus
+}
+
+"""Create book object type."""
+input CreateReviewInput {
+  """A new review comment"""
+  comment: String!
+
+  """A new review  book id"""
+  bookId: Int!
+
+  """A new review  rating"""
+  rating: Int!
+}
+
+input UpdateReviewInput {
+  """A new review comment"""
+  comment: String
+
+  """A new review  book id"""
+  bookId: Int
+
+  """A new review  rating"""
+  rating: Int
+}

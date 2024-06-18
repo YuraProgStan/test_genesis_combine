@@ -1,0 +1,63 @@
+# Compiled output
+/*/dist/
+/*/node_modules/
+/*/build/
+
+# Logs
+/*/logs/
+/*/npm-debug.log*
+/*/pnpm-debug.log*
+/*/yarn-debug.log*
+/*/yarn-error.log*
+/*/lerna-debug.log*
+*.log
+
+# OS
+.DS_Store
+
+# Tests
+/*/coverage/
+/*/.nyc_output/
+
+# IDEs and editors
+.idea
+/*/.idea/
+.project
+.classpath
+.c9/
+/*.launch
+.settings/
+/*.sublime-workspace
+
+# IDE - VSCode
+/*/.vscode/*
+!/*/.vscode/settings.json
+!/*/.vscode/tasks.json
+!/*/.vscode/launch.json
+!/*/.vscode/extensions.json
+
+# dotenv environment variable files
+/*/.env
+/*/.env.old
+/*/.env.development.local
+/*/.env.test.local
+/*/.env.production.local
+/*/.env.local
+
+# Temp directories
+/*/temp/
+/*/tmp/
+
+# Runtime data
+/*/pids/
+/*/*.pid
+/*/*.seed
+/*/*.pid.lock
+
+# Diagnostic reports
+/*/report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Docker
+/*/docker-compose.override.yml
+/*/docker-compose.local.yml
+/*/.env.docker.local

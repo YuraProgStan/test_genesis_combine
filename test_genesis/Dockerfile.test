@@ -1,0 +1,39 @@
+# Stage 1: Build the application
+FROM node:18-alpine AS build
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Stage 2: Install build dependencies and rebuild bcrypt
+FROM build AS install
+
+# Install build dependencies (needed for bcrypt)
+RUN apk add --no-cache --virtual .build-deps build-base python3
+
+# Rebuild bcrypt to ensure compatibility
+RUN npm rebuild bcrypt --build-from-source
+
+# Stage 3: Run tests
+FROM install AS test
+
+WORKDIR /usr/src/app
+
+COPY --from=build /usr/src/app/package*.json ./
+COPY --from=build /usr/src/app/dist ./dist
+
+# Set environment variables for testing
+ENV NODE_ENV=test
+
+# Install additional dependencies needed for testing (e.g., Jest)
+RUN npm install --save-dev jest
+
+# Run tests using Jest
+CMD ["npm", "run", "test"]
