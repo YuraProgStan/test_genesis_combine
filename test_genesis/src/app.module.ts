@@ -12,7 +12,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module';
 import { ReviewModule } from './review/review.module';
 import { UserActivitiesModule } from './user-activities/user-activities.module';
-import { DynamoDBModule } from './dynamodb/dynamodb.module';
 import { SqsModule } from './sqs/sqs.module';
 import { LoggerModule } from './logger/logger.module';
 import { DefaultCacheModule } from './cache/default/default-cache.module';
@@ -20,6 +19,8 @@ import { UserCacheModule } from './cache/user/user-cache.module';
 import { BookCacheModule } from './cache/book/book-cache.module';
 import { GenreCacheModule } from './cache/genre/genre-cache.module';
 import { ReviewCacheModule } from './cache/review/review-cache.module';
+import { DynamooseModule } from 'nestjs-dynamoose';
+import { DynamooseConfigService } from './dynamodb/dynamoose-config.service';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -42,6 +43,9 @@ import { ReviewCacheModule } from './cache/review/review-cache.module';
       }),
       inject: [ConfigService],
     }),
+    DynamooseModule.forRootAsync({
+      useClass: DynamooseConfigService,
+    }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
       autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
@@ -50,6 +54,7 @@ import { ReviewCacheModule } from './cache/review/review-cache.module';
       },
       context: ({ req, res }) => ({ req, res }),
     }),
+
     DefaultCacheModule,
     UserCacheModule,
     BookCacheModule,
@@ -61,7 +66,6 @@ import { ReviewCacheModule } from './cache/review/review-cache.module';
     GenreModule,
     ReviewModule,
     UserActivitiesModule,
-    DynamoDBModule,
     SqsModule,
     LoggerModule,
   ],

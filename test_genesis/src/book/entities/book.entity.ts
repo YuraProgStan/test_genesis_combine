@@ -9,9 +9,10 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Field, ID, Int, ObjectType } from '@nestjs/graphql';
-import { User } from '../../user/enitites/user.entity';
+import { User } from '../../user/entities/user.entity';
 import { BookStatus } from '../enums/book-status';
 import { Genre } from '../../genre/entities/genre.entity';
+import {Transform} from "class-transformer";
 
 @Entity()
 @ObjectType({ description: 'Book model' })
@@ -52,10 +53,11 @@ export class Book {
 
   @JoinTable()
   @ManyToMany(() => User, (user) => user.books, { nullable: true })
-  @Field(type => [User], { nullable: 'itemsAndList' })
+  @Field(() => [User], { nullable: 'itemsAndList' })
   authors: User[];
 
   @JoinTable()
   @ManyToMany(() => Genre, (genre) => genre.books, { cascade: true })
+  @Field(() => [Genre], { nullable: true })
   genres: Genre[];
 }

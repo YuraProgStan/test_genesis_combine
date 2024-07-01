@@ -1,18 +1,12 @@
 import { AuthService } from './auth.service';
-import {
-  Args,
-  Context,
-  Info,
-  Mutation,
-  Query,
-  Resolver,
-} from '@nestjs/graphql';
+import { Args, Context, Info, Mutation, Resolver } from '@nestjs/graphql';
 import { UserService } from '../user/user.service';
 import { LocalAuthGuard } from './local-auth.guard';
 import {
   BadRequestException,
   UnauthorizedException,
   UseGuards,
+  UsePipes,
 } from '@nestjs/common';
 import {
   AuthPayload,
@@ -21,10 +15,12 @@ import {
 } from './types/auth.type';
 import { CurrentUser } from '../user/decorators/users.decorator';
 import { ApolloError } from 'apollo-server-express';
-import { User } from '../user/enitites/user.entity';
 import { CreateUserInput } from '../user/dto/create-user.input';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { GraphQLResolveInfo } from 'graphql/type';
+import { SignupValidationPipe } from './pipes/signup-validation.pipe';
+import { User } from '../user/entities/user.entity';
+import { CurrentUserType } from '../user/types/user.type';
 
 @Resolver()
 export class AuthResolver {
@@ -38,7 +34,7 @@ export class AuthResolver {
   async logIn(
     @Args('email') email: string,
     @Args('password') password: string,
-    @CurrentUser() user: UserWithDetailsWithoutPassword,
+    @CurrentUser() user: CurrentUserType,
   ): Promise<{ access_token: string }> {
     try {
       return this.authService.generateToken(user);
@@ -53,24 +49,24 @@ export class AuthResolver {
     }
   }
 
-  @Mutation(() => UserWithDetailsWithoutPassword, {
+  @UsePipes(new SignupValidationPipe())
+  @Mutation(() => User, {
     name: 'signUp',
     nullable: true,
   })
   async signUp(
     @Args('createUserInput') createUserInput: CreateUserInput,
     @Info() info: GraphQLResolveInfo,
-  ): Promise<UserWithDetailsWithoutPassword> {
+  ): Promise<User> {
     try {
       const isPasswordIncludeInExpectedResponseData =
         this.userService.isPasswordExpectedInResponseData(info);
       if (!isPasswordIncludeInExpectedResponseData) {
         return this.userService.create(createUserInput);
-      } else {
-        throw new BadRequestException(
-          'The password field cannot be included in the response data',
-        );
       }
+      throw new BadRequestException(
+        'The password field cannot be included in the response data',
+      );
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
@@ -83,7 +79,6 @@ export class AuthResolver {
   @UseGuards(JwtAuthGuard)
   @Mutation(() => MessageResponse, { name: 'signOut' })
   async signOut(@Context('req') req: any): Promise<{ message: string }> {
-    console.log('signOut');
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
       throw new ApolloError('No token provided', 'BAD_USER_INPUT');

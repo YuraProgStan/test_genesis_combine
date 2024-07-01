@@ -5,15 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CreateGenreInput } from './dto/create-genre.input.dto';
-import { In, Repository } from 'typeorm';
 import { Genre } from './entities/genre.entity';
-import { InjectRepository } from '@nestjs/typeorm';
+import { GenreRepository } from './genre.repository';
 
 @Injectable()
 export class GenreService {
   constructor(
-    @InjectRepository(Genre)
-    private readonly genreRepository: Repository<Genre>,
+    private readonly genreRepository: GenreRepository,
   ) {}
 
   async findAll() {
@@ -27,9 +25,9 @@ export class GenreService {
     }
   }
 
-  async findOne(id: number): Promise<Genre> {
+  async findGenreById(id: number): Promise<Genre> {
     try {
-      const genre = await this.genreRepository.findOne({ where: { id } });
+      const genre = await this.genreRepository.findGenreById(id);
       if (!genre) {
         throw new NotFoundException(`Genre #${id} does not exist`);
       }
@@ -42,11 +40,10 @@ export class GenreService {
     }
   }
 
-  async findGenresByIds(ids) {
+  public async findGenresByIds(ids) {
     try {
-      const foundGenres: Genre[] = await this.genreRepository.findBy({
-        id: In(ids),
-      });
+      const foundGenres: Genre[] =
+        await this.genreRepository.findGenresByIds(ids);
       return foundGenres;
     } catch (error) {
       throw new InternalServerErrorException(
@@ -58,8 +55,9 @@ export class GenreService {
 
   async create(createGenreInput: CreateGenreInput) {
     try {
-      const genre = this.genreRepository.create(createGenreInput);
-      return await this.genreRepository.save(genre);
+      const genre: Promise<Genre> =
+        this.genreRepository.createAndSaveGenre(createGenreInput);
+      return genre;
     } catch (error) {
       throw new InternalServerErrorException(
         'Failed to create genre',
@@ -68,17 +66,23 @@ export class GenreService {
     }
   }
 
-  async update(id: number, updateGenreInput: UpdateGenreInput) {
+  async updateGenre(updateGenreInput: UpdateGenreInput): Promise<Genre> {
     try {
-      const genre = await this.genreRepository.preload({
+      const { id, ...updateGenreInputData } = updateGenreInput;
+      const genreToUpdate = await this.genreRepository.updateGenre(
         id,
-        ...updateGenreInput,
-      });
-      if (!genre) {
-        throw new NotFoundException(`Genre #${id} does not exist`);
+        updateGenreInputData,
+      );
+
+      if (!genreToUpdate) {
+        throw new NotFoundException(`Genre #${id} not found`);
       }
-      return await this.genreRepository.save(genre);
+
+      return genreToUpdate;
     } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
       throw new InternalServerErrorException(
         'Failed to update genre',
         error.message,
@@ -88,9 +92,13 @@ export class GenreService {
 
   async remove(id: number) {
     try {
-      const genre = await this.findOne(id);
-      return await this.genreRepository.remove(genre);
+      const genre = await this.findGenreById(id);
+      await this.genreRepository.removeGenre(genre);
+      return genre;
     } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
       throw new InternalServerErrorException(
         'Failed to remove genre',
         error.message,

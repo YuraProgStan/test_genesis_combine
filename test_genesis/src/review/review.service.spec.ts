@@ -1,251 +1,224 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { ReviewService } from './review.service';
-import { CreateReviewInput } from './dto/create-review.input';
-import { Review } from './entities/review.entity';
-import { BookStatsService } from './book-stats.service';
-import { UserWithDetailsWithoutPassword } from '../auth/types/auth.type';
-import { UserRoles } from '../user/enums/user-role.enum';
-import { ReviewInput, ReviewResponse } from './types/types';
+import { ReviewRepository } from './review.repository';
+import { Review } from './schemas/review.schema';
 import { InternalServerErrorException } from '@nestjs/common';
-
-jest.mock('uuid', () => ({
-  v4: jest.fn(),
-}));
-const mockBookStatsService = {
-  findByBookId: jest.fn(),
-};
-
-const mockReviewService = {
-  findUserVoteByBookIdAndUserId: jest.fn(),
-  createReviewWithoutVoting: jest.fn(),
-  updateVotesAndRating: jest.fn(),
-  createOrUpdateVote: jest.fn(),
-};
+import { Test, TestingModule } from '@nestjs/testing';
+import { BookStatsService } from './book-stats.service';
+import { UserInputError } from 'apollo-server-express';
+import { ReviewResponse, ReviewTransform } from './types/types';
 
 describe('ReviewService', () => {
   let reviewService: ReviewService;
+  let reviewRepository: any;
   let bookStatsService: BookStatsService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        { provide: ReviewService, useValue: mockReviewService },
-        { provide: BookStatsService, useValue: mockBookStatsService },
+        ReviewService,
+        {
+          provide: ReviewRepository,
+          useValue: {
+            findAll: jest.fn(),
+            findByReviewId: jest.fn(),
+            findByUserId: jest.fn(),
+            findUserVoteByBookIdAndUserId: jest.fn(),
+            createReview: jest.fn(),
+
+            // Add other methods as needed for your tests
+          },
+        },
+        {
+          provide: BookStatsService,
+          useValue: {
+            findByBookId: jest.fn(),
+            // Add other methods as needed for your tests
+          },
+        },
       ],
     }).compile();
 
     reviewService = module.get<ReviewService>(ReviewService);
+    reviewRepository = module.get<ReviewRepository>(ReviewRepository);
     bookStatsService = module.get<BookStatsService>(BookStatsService);
-
+  });
+  afterEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('createOrUpdateVote', () => {
-    const createReviewInput: CreateReviewInput = {
-      bookId: 1,
-      rating: 4,
-      comment: 'Great book!',
-    };
-    const currentUser: UserWithDetailsWithoutPassword = {
-      id: 1,
-      role: UserRoles.USER,
-      details: {
-        username: 'testuser',
-      },
-    };
-
-    it('should create a new vote and update book stats', async () => {
-      const newReview: Review = {
-        ...createReviewInput,
-        reviewId: '766253ca-f748-48df-ba91-1735eef9c429',
-        userId: currentUser.id,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const bookStats = {
-        totalVotes: 1,
-        meanRating: 4,
-      };
-
-      mockReviewService.findUserVoteByBookIdAndUserId.mockResolvedValue(null);
-      mockReviewService.createReviewWithoutVoting.mockResolvedValue(newReview);
-      mockReviewService.updateVotesAndRating.mockResolvedValue(null);
-      mockBookStatsService.findByBookId.mockResolvedValue(bookStats);
-
-      // Simulate the actual method call on the mock service
-      mockReviewService.createOrUpdateVote.mockImplementation(
-        async (createReviewInput, currentUser) => {
-          const userId: number = currentUser.id;
-          const existingVote =
-            await mockReviewService.findUserVoteByBookIdAndUserId(
-              createReviewInput.bookId,
-              userId,
-            );
-          const reviewInput: ReviewInput = { ...createReviewInput, userId };
-
-          const newReview: Review = Review.newInstanceFromDTO(reviewInput);
-          await mockReviewService.createReviewWithoutVoting(reviewInput);
-          if (existingVote) {
-            const ratingChange = newReview.rating - existingVote.rating;
-            await mockReviewService.updateVotesAndRating(
-              reviewInput.bookId,
-              ratingChange,
-              'update',
-            );
-          } else {
-            await mockReviewService.updateVotesAndRating(
-              newReview.bookId,
-              newReview.rating,
-              'add',
-            );
-          }
-          const bookStats = await mockBookStatsService.findByBookId(
-            createReviewInput.bookId,
-          );
-          return { ...newReview, ...bookStats };
+  describe('findAll', () => {
+    it('should return transformed reviews array', async () => {
+      // Mock data for review repository findAll method
+      const mockReviews: Review[] = [
+        {
+          reviewId: 'mockReviewId1',
+          userId: 1,
+          bookId: 1,
+          rating: 4,
+          comment: 'Great book!',
+          createdAt: new Date().getTime(),
+          updatedAt: new Date().getTime(),
         },
-      );
+        {
+          reviewId: 'mockReviewId2',
+          userId: 2,
+          bookId: 1,
+          rating: 4,
+          comment: 'Excellent book!',
+          createdAt: new Date().getTime(),
+          updatedAt: new Date().getTime(),
+        },
+      ];
 
-      const result = await reviewService.createOrUpdateVote(
-        createReviewInput,
-        currentUser,
-      );
+      // Mock reviewRepository findAll method
+      jest.spyOn(reviewRepository, 'findAll').mockResolvedValue(mockReviews);
 
-      expect(result).toBeDefined();
-      expect(result.bookId).toEqual(newReview.bookId);
-      expect(result.comment).toEqual(newReview.comment);
-      expect(result.rating).toEqual(newReview.rating);
-      expect(result.userId).toEqual(newReview.userId);
-      expect(result.reviewId).toBeDefined();
-      expect(result.createdAt).toBeDefined();
+      // Expected transformed reviews
+      const expectedTransformedReviews = mockReviews.map((review) => ({
+        reviewId: review.reviewId,
+        userId: review.userId,
+        bookId: review.bookId,
+        rating: review.rating,
+        comment: review.comment,
+        createdAt: new Date(review.createdAt).toISOString(),
+        updatedAt: new Date(review.updatedAt).toISOString(),
+        // Add any transformation logic as needed
+      }));
+
+      // Call the service method
+      const transformedReviews = await reviewService.findAll();
+
+      // Assert
+      expect(transformedReviews).toEqual(expectedTransformedReviews);
     });
 
-    it('should update an existing vote and update book stats', async () => {
-      const existingVote: Review = {
-        ...createReviewInput,
-        reviewId: '4f612ba7-2555-48df-80f5-43fd0f9b7d64',
-        userId: currentUser.id,
-        rating: 3,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+    it('should throw InternalServerErrorException on repository error', async () => {
+      // Mock reviewRepository findAll method to throw an error
+      jest.spyOn(reviewRepository, 'findAll').mockRejectedValue(new Error());
+
+      // Call the service method and expect it to throw InternalServerErrorException
+      await expect(reviewService.findAll()).rejects.toThrow(
+        InternalServerErrorException,
+      );
+    });
+  });
+  describe('findByReviewId', () => {
+    it('should return review data with rating when review is found', async () => {
+      const mockReviewId = 'mockReviewId';
+      const mockReview = {
+        reviewId: mockReviewId,
+        userId: 1,
+        bookId: 1,
+        rating: 4,
+        comment: 'Great book!',
+        createdAt: new Date().getTime(),
+        updatedAt: new Date().getTime(),
       };
-
-      const newReview: Review = {
-        ...createReviewInput,
-        userId: currentUser.id,
-        reviewId: '4f612ba7-2555-48df-80f5-43fd0f9b7d64',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      const mockTransformedReview: ReviewTransform = {
+        reviewId: mockReview.reviewId,
+        userId: mockReview.userId,
+        bookId: mockReview.bookId,
+        rating: mockReview.rating,
+        comment: mockReview.comment,
+        createdAt: new Date(mockReview.createdAt).toISOString(),
+        updatedAt: new Date(mockReview.updatedAt).toISOString(),
       };
+      const mockRating = { totalVotes: 1, meanRating: 4 }; // Mock rating data
 
-      const bookStats = {
-        totalReviews: 1,
-        averageRating: 4,
-      };
+      jest
+        .spyOn(reviewRepository, 'findByReviewId')
+        .mockResolvedValue(mockReview);
+      jest
+        .spyOn(bookStatsService, 'findByBookId')
+        .mockResolvedValue(mockRating);
 
-      mockReviewService.findUserVoteByBookIdAndUserId.mockResolvedValue(
-        existingVote,
-      );
-      mockReviewService.createReviewWithoutVoting.mockResolvedValue(newReview);
-      mockReviewService.updateVotesAndRating.mockResolvedValue(null);
-      mockBookStatsService.findByBookId.mockResolvedValue(bookStats);
+      const result: ReviewResponse =
+        await reviewService.findByReviewId(mockReviewId);
 
-      // Simulate the actual method call on the mock service
-      mockReviewService.createOrUpdateVote.mockImplementation(
-        async (createReviewInput, currentUser) => {
-          const userId: number = currentUser.id;
-          const existingVote =
-            await mockReviewService.findUserVoteByBookIdAndUserId(
-              createReviewInput.bookId,
-              userId,
-            );
-          const reviewInput: ReviewInput = { ...createReviewInput, userId };
-
-          const newReview: Review = Review.newInstanceFromDTO(reviewInput);
-          await mockReviewService.createReviewWithoutVoting(reviewInput);
-          if (existingVote) {
-            const ratingChange = newReview.rating - existingVote.rating;
-            await mockReviewService.updateVotesAndRating(
-              reviewInput.bookId,
-              ratingChange,
-              'update',
-            );
-          } else {
-            await mockReviewService.updateVotesAndRating(
-              newReview.bookId,
-              newReview.rating,
-              'add',
-            );
-          }
-          const bookStats = await mockBookStatsService.findByBookId(
-            createReviewInput.bookId,
-          );
-          return { ...newReview, ...bookStats };
-        },
-      );
-
-      const result = await reviewService.createOrUpdateVote(
-        createReviewInput,
-        currentUser,
-      );
-
-      expect(result).toEqual(
-        expect.objectContaining({
-          bookId: createReviewInput.bookId,
-          rating: createReviewInput.rating,
-          comment: createReviewInput.comment,
-          userId: currentUser.id,
-          totalReviews: bookStats.totalReviews,
-          averageRating: bookStats.averageRating,
-        }),
-      );
-      expect(
-        mockReviewService.findUserVoteByBookIdAndUserId,
-      ).toHaveBeenCalledWith(createReviewInput.bookId, currentUser.id);
-      expect(mockReviewService.createReviewWithoutVoting).toHaveBeenCalledWith({
-        ...createReviewInput,
-        userId: currentUser.id,
+      expect(result).toEqual({
+        ...mockTransformedReview,
+        ...mockRating,
       });
-      expect(mockReviewService.updateVotesAndRating).toHaveBeenCalledWith(
-        newReview.bookId,
-        newReview.rating - existingVote.rating,
-        'update',
-      );
     });
 
-    it('should throw an InternalServerErrorException if an error occurs', async () => {
-      // Mocking the method to throw an error
-      mockReviewService.findUserVoteByBookIdAndUserId.mockRejectedValue(
-        new Error('Database error'),
-      );
+    it('should throw UserInputError if review is not found', async () => {
+      const mockReviewId = 'nonExistingReviewId';
 
-      reviewService.createOrUpdateVote = async (
-        createReviewInput,
-        currentUser,
-      ) => {
-        try {
-          await mockReviewService.findUserVoteByBookIdAndUserId(
-            createReviewInput,
-            currentUser,
-          );
-          return new ReviewResponse();
-        } catch (error) {
-          throw new InternalServerErrorException(
-            'Failed to create or update vote',
-            error.message,
-          );
-        }
-      };
+      jest.spyOn(reviewRepository, 'findByReviewId').mockResolvedValue(null);
 
       await expect(
-        reviewService.createOrUpdateVote(createReviewInput, currentUser),
-      ).rejects.toThrow(
-        new InternalServerErrorException(
-          'Failed to create or update vote',
-          'Database error',
-        ),
-      );
+        reviewService.findByReviewId(mockReviewId),
+      ).rejects.toThrowError(UserInputError);
+    });
+
+    it('should throw InternalServerErrorException on repository error', async () => {
+      const mockReviewId = 'mockReviewId';
+
+      jest
+        .spyOn(reviewRepository, 'findByReviewId')
+        .mockRejectedValue(new Error());
+
+      await expect(
+        reviewService.findByReviewId(mockReviewId),
+      ).rejects.toThrowError(InternalServerErrorException);
+    });
+
+    describe('findByUserId', () => {
+      it('should return transformed reviews array', async () => {
+        const userId = 1;
+        const mockReviews: Review[] = [
+          {
+            reviewId: 'mockReviewId1',
+            userId: userId,
+            bookId: 1,
+            rating: 4,
+            comment: 'Great book!',
+            createdAt: new Date().getTime(),
+            updatedAt: new Date().getTime(),
+          },
+          {
+            reviewId: 'mockReviewId2',
+            userId: userId,
+            bookId: 2,
+            rating: 5,
+            comment: 'Excellent book!',
+            createdAt: new Date().getTime(),
+            updatedAt: new Date().getTime(),
+          },
+        ];
+
+        jest
+          .spyOn(reviewRepository, 'findByUserId')
+          .mockResolvedValue(mockReviews);
+
+        const expectedTransformedReviews = mockReviews.map((review) => ({
+          reviewId: review.reviewId,
+          userId: review.userId,
+          bookId: review.bookId,
+          rating: review.rating,
+          comment: review.comment,
+          createdAt: new Date(review.createdAt).toISOString(),
+          updatedAt: new Date(review.updatedAt).toISOString(),
+        }));
+
+        // Call the service method
+        const transformedReviews = await reviewService.findByUserId(userId);
+
+        // Assert
+        expect(transformedReviews).toEqual(expectedTransformedReviews);
+      });
+
+      it('should throw InternalServerErrorException on repository error', async () => {
+        const userId = 1;
+
+        jest
+          .spyOn(reviewRepository, 'findByUserId')
+          .mockRejectedValue(new Error());
+
+        await expect(reviewService.findByUserId(userId)).rejects.toThrowError(
+          InternalServerErrorException,
+        );
+      });
     });
   });
 });

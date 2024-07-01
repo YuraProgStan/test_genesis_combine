@@ -9,16 +9,19 @@ import {
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { UserService } from '../user/user.service';
-import { QUEUE_TYPE, USER_ACTIVITY_TYPE } from '../constants/constants';
+import { QUEUE_TYPE } from '../constants/constants';
 import { SqsService } from '../sqs/sqs.service';
-import { UserDetails } from '../user/enitites/user-details.entity';
-import { User } from '../user/enitites/user.entity';
+import { UserDetails } from '../user/entities/user-details.entity';
+import { User } from '../user/entities/user.entity';
 import { UserWithDetailsWithoutPassword } from './types/auth.type';
 import { DefaultCacheService } from '../cache/default/default-cache.service';
+import { MessageType } from '../book/types/book.type';
+import { ActivityType } from '../user-activities/enums/enums';
 
 @Injectable()
 export class AuthService {
   private redisKey = 'invalidatedTokens';
+
   constructor(
     @Inject(forwardRef(() => UserService))
     private usersService: UserService,
@@ -27,9 +30,11 @@ export class AuthService {
     private cacheService: DefaultCacheService,
     private readonly sqsService: SqsService,
   ) {}
+
   public getRedisKey(): string {
     return this.redisKey;
   }
+
   async validateUserCreds(
     email: string,
     password: string,
@@ -45,7 +50,6 @@ export class AuthService {
         password,
         userWithDetails.details.password,
       );
-
       if (!isMatch) {
         throw new UnauthorizedException('Invalid password');
       }
@@ -79,17 +83,8 @@ export class AuthService {
       }),
     };
 
-    const messageBody = {
-      type: QUEUE_TYPE.USER_ACTIVITY,
-      payload: {
-        userId: user.id,
-        activityType: USER_ACTIVITY_TYPE.USER.USER_SIGNIN,
-        timestamp: new Date().toISOString(),
-      },
-    };
-
     try {
-      await this.sqsService.sendMessage(messageBody);
+      await this.sendSignInMessage(user.id);
     } catch (sqsError) {
       throw new InternalServerErrorException(
         'Failed to send message to SQS',
@@ -98,6 +93,26 @@ export class AuthService {
     }
 
     return token;
+  }
+
+  private generateMessage(userId, activityType): MessageType {
+    return {
+      type: QUEUE_TYPE.USER_ACTIVITY,
+      payload: {
+        userId,
+        activityType,
+        timestamp: new Date().toString(),
+      },
+    };
+  }
+
+  private async sendSignInMessage(userId: number) {
+    const message = this.generateMessage(
+      userId,
+      ActivityType.USER_SIGNIN,
+    );
+
+    await this.sqsService.sendMessage(message);
   }
 
   async invalidateToken(token: string): Promise<void> {

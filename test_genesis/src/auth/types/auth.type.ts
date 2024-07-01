@@ -1,7 +1,6 @@
+// eslint-disable-next-line max-classes-per-file
 import { Field, Int, ObjectType } from '@nestjs/graphql';
 import { UserRoles } from '../../user/enums/user-role.enum';
-import { UserStatus } from '../../user/enums/user-status.enum';
-import { User } from '../../user/enitites/user.entity';
 
 @ObjectType()
 class AuthPayload {

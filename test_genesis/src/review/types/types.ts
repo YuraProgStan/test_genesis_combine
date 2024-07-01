@@ -1,7 +1,31 @@
-import { Field, Float, Int, ObjectType } from '@nestjs/graphql';
-import { Review } from '../entities/review.entity';
+// eslint-disable-next-line max-classes-per-file
+import { Field, Float, ID, ObjectType } from '@nestjs/graphql';
+
 @ObjectType()
-export class ReviewResponse extends Review {
+export class ReviewTransform {
+  @Field(() => ID)
+  reviewId: string;
+
+  @Field(() => String)
+  comment: string;
+
+  @Field(() => Number)
+  bookId: number;
+
+  @Field(() => Number)
+  userId: number;
+
+  @Field(() => Number)
+  rating: number;
+
+  @Field()
+  createdAt: string;
+
+  @Field()
+  updatedAt: string;
+}
+@ObjectType()
+export class ReviewResponse extends ReviewTransform {
   @Field(() => Number)
   totalVotes: number;
 
@@ -11,8 +35,8 @@ export class ReviewResponse extends Review {
 
 @ObjectType()
 export class ReviewsResponse {
-  @Field(() => [Review])
-  reviews: Review[];
+  @Field(() => [ReviewTransform])
+  reviews: ReviewTransform[];
 
   @Field(() => Number)
   totalVotes: number;
@@ -25,21 +49,6 @@ export class ReviewsResponse {
 export class KeyAttribute {
   @Field(() => String, { nullable: true })
   key?: string;
-}
-
-@ObjectType()
-export class ReviewsPage {
-  @Field(() => [Review])
-  reviews: Review[];
-
-  @Field(() => Int)
-  totalReviews: number;
-
-  @Field(() => String, { nullable: true })
-  lastEvaluatedKey?: string;
-
-  @Field(() => String, { nullable: true })
-  firstEvaluatedKey?: string;
 }
 
 @ObjectType()
@@ -78,4 +87,16 @@ export class UpdateReviewInputWithUserId {
 
   @Field()
   rating?: number;
+}
+
+@ObjectType()
+export class BookStatsTransform {
+  @Field(() => ID)
+  bookId: number;
+
+  @Field(() => Number)
+  totalVotes: number;
+
+  @Field(() => Number)
+  meanRating: number;
 }

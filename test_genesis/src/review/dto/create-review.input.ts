@@ -1,5 +1,5 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { IsNotEmpty, Length, Max, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, Length, Max, Min } from 'class-validator';
 import { Transform } from 'class-transformer';
 import * as sanitizeHtml from 'sanitize-html';
 @InputType({ description: 'Create book object type.' })
@@ -12,8 +12,8 @@ export class CreateReviewInput {
 
   @Field(() => Number, { description: 'A new review  book id' })
   @IsNotEmpty({ message: 'The review should have a  book id' })
+  @IsInt()
   bookId: number;
-
 
   @Field(() => Number, { description: 'A new review  rating' })
   @IsNotEmpty({ message: 'The review should have a  rating' })

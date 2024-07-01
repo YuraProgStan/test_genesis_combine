@@ -9,6 +9,7 @@ import { SqsModule } from '../sqs/sqs.module';
 import { GenreModule } from '../genre/genre.module';
 import { BookResolver } from './book.resolver';
 import { BookService } from './book.service';
+import { BookRepository } from './book.repository';
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { BookService } from './book.service';
     SqsModule,
     forwardRef(() => GenreModule),
   ],
-  providers: [BookResolver, BookService],
+  providers: [BookResolver, BookService, BookRepository],
   exports: [BookService],
 })
 export class BookModule {}

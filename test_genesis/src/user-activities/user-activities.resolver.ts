@@ -1,12 +1,19 @@
 import { Resolver, Query, Args, Mutation } from '@nestjs/graphql';
 import { UserActivityLogsService } from './user-activities.service';
-import { UserActivityLog } from './entities/user-activity.entity';
 import { ApolloError } from 'apollo-server-express';
-import { DeleteActivitiesResponse } from './types/type';
-import { UseGuards } from '@nestjs/common';
+import {
+  DeleteActivitiesResponse,
+  UserActivityLogTransform,
+} from './types/type';
+import { ParseIntPipe, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { UserActivityLog } from './schemas/user-activity.schema';
+import { CurrentUser } from '../user/decorators/users.decorator';
+import { CurrentUserType } from '../user/types/user.type';
+import { GetActivityByTypeDto } from './dto/get-activity-by-type.dto';
+import { DeleteActivityByTypeDto } from './dto/delete-activity-by-type.dto';
 
 @Resolver(() => UserActivityLog)
 export class UserActivityLogsResolver {
@@ -16,10 +23,11 @@ export class UserActivityLogsResolver {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin')
-  @Query(() => [UserActivityLog])
+  @Query(() => [UserActivityLogTransform], { name: 'getActivityLogs' })
   async getActivityLogs(
-    @Args('userId') userId: number,
-  ): Promise<UserActivityLog[]> {
+    @Args('userId', ParseIntPipe) userId: number,
+    @CurrentUser() currentUser: CurrentUserType,
+  ): Promise<UserActivityLogTransform[]> {
     try {
       return await this.userActivityLogsService.getActivityLogs(userId);
     } catch (error) {
@@ -32,12 +40,12 @@ export class UserActivityLogsResolver {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin')
-  @Query(() => [UserActivityLog])
+  @Query(() => [UserActivityLogTransform])
   async getActivityByType(
-    @Args('timestamp') timestamp: Date,
-    @Args('activityType') activityType: string,
-  ): Promise<UserActivityLog[]> {
+    @Args('getActivityByTypeDto') getActivityByTypeDto: GetActivityByTypeDto,
+  ): Promise<UserActivityLogTransform[]> {
     try {
+      const { activityType, timestamp } = getActivityByTypeDto;
       return await this.userActivityLogsService.getActivityByType(
         activityType,
         timestamp,
@@ -50,15 +58,17 @@ export class UserActivityLogsResolver {
     }
   }
 
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('admin')
-  @Mutation(() => DeleteActivitiesResponse, { name: 'removeActivitiesByTimestampAndType' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  @Mutation(() => DeleteActivitiesResponse, {
+    name: 'removeActivitiesByTimestampAndType',
+  })
   async deleteUserActivityByTimestampAndActivityType(
-    @Args('timestamp') timestamp: Date,
-    @Args('activityType') activityType: string,
+    @Args('deleteActivityByTypeDto')
+    deleteActivityByTypeDto: DeleteActivityByTypeDto,
   ): Promise<DeleteActivitiesResponse> {
     try {
-        console.log("deleteUserActivityByTimestampAndActivityType")
+      const { activityType, timestamp } = deleteActivityByTypeDto;
       return await this.userActivityLogsService.removeActivitiesByTimestampAndType(
         activityType,
         timestamp,

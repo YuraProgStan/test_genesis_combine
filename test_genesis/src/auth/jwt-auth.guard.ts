@@ -13,7 +13,6 @@ import { IAuthGuard } from './interfaces/auth.interface';
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') implements IAuthGuard {
   private request;
-  private redisKey = 'invalidatedTokens';
 
   constructor(
     @Inject(forwardRef(() => AuthService))

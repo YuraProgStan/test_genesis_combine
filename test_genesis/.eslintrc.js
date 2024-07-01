@@ -7,6 +7,7 @@ module.exports = {
   },
   plugins: ['@typescript-eslint/eslint-plugin'],
   extends: [
+    'airbnb-base/legacy',
     'plugin:@typescript-eslint/recommended',
     'plugin:prettier/recommended',
   ],
@@ -22,6 +23,8 @@ module.exports = {
     '@typescript-eslint/explicit-module-boundary-types': 'off',
     '@typescript-eslint/no-explicit-any': 'off',
       'object-curly-spacing': ['error', 'always'],
-      'quotes': ["error", "single"]
+      'quotes': ["error", "single"],
+      'class-methods-use-this': 'off',
+      'no-empty-function': 'off',
   },
 };

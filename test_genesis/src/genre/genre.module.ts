@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { UserModule } from '../user/user.module';
 import { BookModule } from '../book/book.module';
 import { GenreCacheModule } from '../cache/genre/genre-cache.module';
+import {GenreRepository} from "./genre.repository";
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { GenreCacheModule } from '../cache/genre/genre-cache.module';
     forwardRef(() => UserModule),
     forwardRef(() => BookModule),
   ],
-  providers: [GenreService, GenreResolver],
+  providers: [GenreService, GenreResolver, GenreRepository],
   exports: [GenreService],
 })
 export class GenreModule {}

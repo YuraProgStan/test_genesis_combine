@@ -1,9 +1,11 @@
-import { ObjectType, Field, Int } from '@nestjs/graphql';
+import { ObjectType, Field, Int, ID } from '@nestjs/graphql';
 import {
-    Column, CreateDateColumn,
-    Entity,
-    OneToOne,
-    PrimaryGeneratedColumn, UpdateDateColumn,
+  Column,
+  CreateDateColumn,
+  Entity,
+  OneToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Exclude } from 'class-transformer';
@@ -12,7 +14,7 @@ import { Exclude } from 'class-transformer';
 @ObjectType()
 export class UserDetails {
   @PrimaryGeneratedColumn()
-  @Field(() => Int)
+  @Field(() => ID)
   id: number;
 
   @Column({ type: 'varchar', length: 255, unique: true })
@@ -39,8 +41,10 @@ export class UserDetails {
   user: User;
 
   @CreateDateColumn()
+  @Field(() => Date)
   createdAt: Date;
 
   @UpdateDateColumn()
+  @Field(() => Date)
   updatedAt: Date;
 }

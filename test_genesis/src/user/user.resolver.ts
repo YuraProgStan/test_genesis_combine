@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
   UseGuards,
   UseInterceptors,
+  UsePipes,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UpdateUserInput } from './dto/update-user.input';
@@ -14,14 +15,15 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ApolloError, UserInputError } from 'apollo-server-express';
 import { ChangePasswordInput } from './dto/change-user-password.dto';
-import { PasswordResponse, UserResponse } from './types/user.type';
-import { UserDetails } from './enitites/user-details.entity';
 import { UserExistsInterceptor } from './interceptors/user-exist.interceptor';
 import { UserWithDetailsWithoutPassword } from '../auth/types/auth.type';
 import { CurrentUser } from './decorators/users.decorator';
-import { User } from './enitites/user.entity';
-import { UserRoles } from './enums/user-role.enum';
 import { UserCacheService } from '../cache/user/user-cache.service';
+import { UpdateUserValidationPipe } from './pipes/update-user-validation.pipe';
+import { User } from './entities/user.entity';
+import { UserDetails } from './entities/user-details.entity';
+import { GetUserValidationPipe } from './pipes/get-user-validation.pipe';
+import {CurrentUserType, DeleteUserResponse} from './types/user.type';
 
 @Resolver()
 export class UserResolver {
@@ -33,8 +35,8 @@ export class UserResolver {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin')
-  @Query(() => [UserResponse], { name: 'users' })
-  async getAllUsers() {
+  @Query(() => [User], { name: 'users' })
+  async getAllUsers(): Promise<User[]> {
     try {
       return await this.userService.findAll();
     } catch (error) {
@@ -43,68 +45,44 @@ export class UserResolver {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Query(() => UserResponse, { name: 'user', nullable: true })
+  @UsePipes(GetUserValidationPipe)
+  @Query(() => User, { name: 'user', nullable: true })
   async getUserById(
-    @Args('id', { type: () => ID }, ParseIntPipe) id: number,
-    @CurrentUser() currentUser: User,
-  ): Promise<Partial<any>> {
-    if (currentUser.role !== UserRoles.ADMIN && currentUser.id !== id) {
-      throw new ApolloError(
-        'You are not authorized to view this user',
-        'UNAUTHORIZED',
-      );
-    }
+    @Args('id', ParseIntPipe) id: number,
+    @CurrentUser() currentUser: CurrentUserType,
+  ): Promise<User> {
     const cacheKey = `user:${id}`;
     const cachedUser = await this.cacheManager.get(cacheKey);
     if (cachedUser) {
-      return cachedUser;
+      const cachedUserWithDateFormat: User = this.convertDateFields(cachedUser);
+      return cachedUserWithDateFormat;
     }
-    const user: UserResponse = await this.userService.getUserById(id);
+    const user: User = await this.userService.getUserById(id);
     await this.cacheManager.set(cacheKey, user);
     return user;
   }
-  catch(error) {
-    if (error instanceof UserInputError) {
-      throw error;
-    }
-    throw new ApolloError('Failed to get user', 'INTERNAL_SERVER_ERROR');
-  }
 
   @UseGuards(JwtAuthGuard)
-  @Mutation(() => UserResponse, { name: 'updateUser' })
+  @Mutation(() => User, { name: 'updateUser' })
+  @UsePipes(UpdateUserValidationPipe)
   async updateUser(
-    @Args('id', ParseIntPipe) id: number,
     @Args('updateUserInput') updateUserInput: UpdateUserInput,
-    @CurrentUser() user: Partial<User> & Partial<UserDetails>,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<UserWithDetailsWithoutPassword> {
+    const { id, ...updateUserInputData } = updateUserInput;
     try {
-      if (
-        (user.role !== UserRoles.ADMIN &&
-          (id !== user.id || updateUserInput.role === UserRoles.ADMIN)) ||
-        ((user.role === UserRoles.USER || user.role === UserRoles.AUTHOR) &&
-          updateUserInput.role === UserRoles.EDITOR) ||
-        (user.role === UserRoles.USER &&
-          updateUserInput.role === UserRoles.AUTHOR)
-      ) {
-        throw new UserInputError(
-          'You do not have permission to update this user or this operation',
-        );
-      }
-      return await this.userService.update(id, updateUserInput, user);
+      return await this.userService.update(id, updateUserInputData);
     } catch (error) {
-      if (error instanceof UserInputError) {
-        throw error;
-      }
       throw new ApolloError('Failed to update user', 'INTERNAL_SERVER_ERROR');
     }
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin')
-  @Mutation(() => PasswordResponse, { name: 'removeUser' })
+  @Mutation(() => DeleteUserResponse, { name: 'removeUser' })
   async deleteUserById(
     @Args('id', ParseIntPipe) id: number,
-  ): Promise<{ message: string }> {
+  ): Promise<DeleteUserResponse> {
     try {
       return await this.userService.remove(id);
     } catch (error) {
@@ -117,7 +95,7 @@ export class UserResolver {
 
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(UserExistsInterceptor)
-  @Mutation(() => PasswordResponse)
+  @Mutation(() => UserDetails)
   async changePassword(
     @Args('input') input: ChangePasswordInput,
   ): Promise<{ message: string }> {
@@ -135,5 +113,15 @@ export class UserResolver {
         'INTERNAL_SERVER_ERROR',
       );
     }
+  }
+
+  private convertDateFields(user: User): User {
+    const newUser: User = { ...user };
+    newUser.createdAt = new Date(user.createdAt);
+    newUser.updatedAt = new Date(user.updatedAt);
+    newUser.details.createdAt = new Date(user.details.createdAt);
+    newUser.details.updatedAt = new Date(user.details.updatedAt);
+
+    return newUser;
   }
 }

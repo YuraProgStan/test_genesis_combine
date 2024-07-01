@@ -9,7 +9,7 @@ import {
   ManyToMany,
   JoinTable,
 } from 'typeorm';
-import { Field, ObjectType } from '@nestjs/graphql';
+import { Field, ID, ObjectType } from '@nestjs/graphql';
 import { UserRoles } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
 import { Book } from '../../book/entities/book.entity';
@@ -19,6 +19,7 @@ import { UserDetails } from './user-details.entity';
 @ObjectType()
 export class User {
   @PrimaryGeneratedColumn()
+  @Field(() => ID)
   id: number;
 
   @Column({ type: 'enum', enum: UserRoles, default: UserRoles.USER })

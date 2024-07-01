@@ -16,7 +16,7 @@ export class CacheService {
   }
 
   async get(key: string): Promise<any> {
-    return await this.cacheManager.get(key);
+    return this.cacheManager.get(key);
   }
 
   async set(

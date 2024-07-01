@@ -12,4 +12,17 @@ registerEnumType(BookStatus, {
   description: 'Book Status Types',
 });
 
-export { BookStatus };
+enum CustomBookSortBy {
+  TITLE = 'title',
+  PUBLICATION_YEAR = 'publicationYear',
+  GENRE = 'genre',
+  AUTHOR = 'author',
+  BOOK_ID = 'bookId',
+}
+
+registerEnumType(CustomBookSortBy, {
+  name: 'CustomBookSortBy',
+  description: 'Allowed SorBy Types',
+});
+
+export { BookStatus, CustomBookSortBy };

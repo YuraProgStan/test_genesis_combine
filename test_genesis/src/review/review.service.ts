@@ -1,59 +1,33 @@
-import {
-  AttributeValue,
-  DeleteItemCommand,
-  QueryCommand,
-  PutItemCommand,
-  ScanCommand,
-  ScanCommandInput,
-} from '@aws-sdk/client-dynamodb';
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { Review } from './entities/review.entity';
 import { UpdateReviewInput } from './dto/update-review.input';
 import { CreateReviewInput } from './dto/create-review.input';
-import { DynamoDBService } from '../dynamodb/dynamodb.service';
 import { UserInputError } from 'apollo-server-express';
-import { DYNAMO_DB_TABLES } from '../dynamodb/constants';
 import { BookStatsService } from './book-stats.service';
 import {
   ReviewInput,
   ReviewResponse,
+  ReviewTransform,
   UpdateReviewInputWithUserId,
 } from './types/types';
-import { LoggerService } from '../logger/logger.service';
-import { SCAN_REVIEWS_TYPE } from '../constants/constants';
-import { UserWithDetailsWithoutPassword } from '../auth/types/auth.type';
+import { ReviewRepository } from './review.repository';
+import { Review } from './schemas/review.schema';
+import { CurrentUserType } from '../user/types/user.type';
+
 @Injectable()
 export class ReviewService {
-  private readonly tableName: string = DYNAMO_DB_TABLES.REVIEWS;
-  private readonly totalSegments: number = SCAN_REVIEWS_TYPE.TOTALSEGMENTS;
-  private readonly segment: number = SCAN_REVIEWS_TYPE.SEGMENT;
-
   constructor(
-    private readonly dynamoDBService: DynamoDBService,
     private readonly bookStatsService: BookStatsService,
-    private readonly logger: LoggerService,
+    private readonly reviewRepository: ReviewRepository,
+    // eslint-disable-next-line no-empty-function
   ) {}
-  private async executeCommand(command: any): Promise<any> {
-    try {
-      return await this.dynamoDBService.getClient().send(command);
-    } catch (error) {
-      console.error('Error executing command:', error);
-      throw new InternalServerErrorException(
-        `Failed to execute command: ${error.message}`,
-      );
-    }
-  }
 
-  public async findAll(): Promise<Review[]> {
+  public async findAll(): Promise<ReviewTransform[]> {
     try {
-      const response = await this.executeCommand(
-        new ScanCommand({ TableName: this.tableName }),
+      const reviews: Review[] = await this.reviewRepository.findAll();
+      const transformedReview: ReviewTransform[] = reviews.map((review) =>
+        Review.newInstanceFromDynamoDBDormObject(review),
       );
-      return response.Items
-        ? response.Items.map((item) =>
-            Review.newInstanceFromDynamoDBObject(item),
-          )
-        : [];
+      return transformedReview;
     } catch (error) {
       throw new InternalServerErrorException(
         'Failed to fetch all reviews from DB',
@@ -64,23 +38,18 @@ export class ReviewService {
 
   public async findByReviewId(reviewId: string): Promise<ReviewResponse> {
     try {
-      const command = new QueryCommand({
-        TableName: this.tableName,
-        KeyConditionExpression: 'reviewId = :reviewId',
-        ExpressionAttributeValues: {
-          ':reviewId': { S: reviewId },
-        },
-      });
-      const response = await this.executeCommand(command);
-      if (!response.Items || response.Items.length === 0) {
+      const review = await this.reviewRepository.findByReviewId(reviewId);
+      if (!review) {
         throw new UserInputError(
           `No existing data for this reviewId: ${reviewId}`,
         );
       }
-      const item = response.Items[0];
-      const review = Review.newInstanceFromDynamoDBObject(item);
-      const rating = await this.bookStatsService.findByBookId(review.bookId);
-      return { ...review, ...rating };
+      const reviewTransform: ReviewTransform =
+        Review.newInstanceFromDynamoDBDormObject(review);
+      const rating = await this.bookStatsService.findByBookId(
+        reviewTransform.bookId,
+      );
+      return { ...reviewTransform, ...rating };
     } catch (error) {
       if (error instanceof UserInputError) {
         throw error;
@@ -93,27 +62,28 @@ export class ReviewService {
     }
   }
 
-  public async findByBookId(
-    bookId: number,
-  ): Promise<{ reviews: Review[]; totalVotes: number; meanRating: number }> {
+  public async findByBookId(bookId: number): Promise<{
+    reviews: ReviewTransform[] | [];
+    totalVotes: number;
+    meanRating: number;
+  }> {
     try {
-      const command = new QueryCommand({
-        TableName: this.tableName,
-        IndexName: 'bookId-index',
-        KeyConditionExpression: 'bookId = :bookId',
-        ExpressionAttributeValues: {
-          ':bookId': { N: String(bookId) },
-        },
-      });
-      const response = await this.executeCommand(command);
-      const reviews = response.Items
-        ? response.Items.map((item) =>
-            Review.newInstanceFromDynamoDBObject(item),
-          )
-        : [];
+      const reviews: Review[] =
+        await this.reviewRepository.findByBookId(bookId);
+      if (!reviews.length) {
+        return {
+          reviews: [],
+          totalVotes: 0,
+          meanRating: 0,
+        };
+      }
+
+      const reviewsTransform: ReviewTransform[] = reviews.map(
+        (review: Review) => Review.newInstanceFromDynamoDBDormObject(review),
+      );
       const bookStats = await this.bookStatsService.findByBookId(bookId);
       return {
-        reviews,
+        reviews: reviewsTransform,
         totalVotes: bookStats.totalVotes,
         meanRating: bookStats.meanRating,
       };
@@ -125,25 +95,17 @@ export class ReviewService {
     }
   }
 
-  public async findByUserId(userId: number): Promise<Review[]> {
+  public async findByUserId(userId: number): Promise<ReviewTransform[] | []> {
     try {
-      const command = new QueryCommand({
-        TableName: this.tableName,
-        IndexName: 'userId-index',
-        KeyConditionExpression: 'userId = :userId',
-        ExpressionAttributeValues: {
-          ':userId': { N: String(userId) },
-        },
-      });
-      const response = await this.executeCommand(command);
-      return response.Items
-        ? response.Items.map((item) =>
-            Review.newInstanceFromDynamoDBObject(item),
-          )
-        : [];
+      const reviewNews = await this.reviewRepository.findByUserId(userId);
+
+      const reviews: ReviewTransform[] = reviewNews.map((review: Review) =>
+        Review.newInstanceFromDynamoDBDormObject(review),
+      );
+      return reviews;
     } catch (error) {
       throw new InternalServerErrorException(
-        'Failed to fetch reviews by User ID from DB',
+        'Failed to fetch reviews by user ID from DB',
         error.message,
       );
     }
@@ -151,7 +113,7 @@ export class ReviewService {
 
   public async createOrUpdateVote(
     createReviewInput: CreateReviewInput,
-    currentUser: UserWithDetailsWithoutPassword,
+    currentUser: CurrentUserType,
   ): Promise<ReviewResponse> {
     const userId: number = currentUser.id;
     try {
@@ -161,59 +123,62 @@ export class ReviewService {
       );
       const reviewInput: ReviewInput = { ...createReviewInput, userId };
 
-      const newReview: Review = Review.newInstanceFromDTO(reviewInput);
-      await this.createReviewWithoutVoting(reviewInput);
+      const review: Review =
+        await this.reviewRepository.createReview(reviewInput);
       if (existingVote) {
-        const ratingChange = newReview.rating - existingVote.rating;
-        await this.updateVotesAndRating(
-          reviewInput.bookId,
-          ratingChange,
-          'update',
-        );
+        const ratingChange = review.rating - existingVote.rating;
+
+        await this.updateVotesAndRating(review.bookId, ratingChange, 'update');
       } else {
         await this.updateVotesAndRating(
-          newReview.bookId,
-          newReview.rating,
+          createReviewInput.bookId,
+          createReviewInput.rating,
           'add',
         );
       }
       const bookStats = await this.bookStatsService.findByBookId(
         createReviewInput.bookId,
       );
-      return { ...newReview, ...bookStats };
+      const reviewTransform: ReviewTransform =
+        Review.newInstanceFromDynamoDBDormObject(review);
+      return {
+        ...reviewTransform,
+        ...bookStats,
+      };
     } catch (error) {
       throw new InternalServerErrorException(
         'Failed to create or update vote',
-        error.message,
+        error.stack,
       );
     }
   }
 
   public async update(
     updateReviewInput: UpdateReviewInput,
-    reviewId: string,
     userId: number,
-  ): Promise<Review> {
+  ): Promise<ReviewTransform> {
+    const { reviewId, ...restUpdateReviewInput } = updateReviewInput;
     try {
-      const existingReview = await this.findByReviewId(reviewId);
+      const existingReview =
+        await this.reviewRepository.findByReviewId(reviewId);
       if (!existingReview) {
         throw new UserInputError(`Review with ID ${reviewId} not found.`);
       }
 
       const updateReviewInputWithUserId: UpdateReviewInputWithUserId = {
-        ...updateReviewInput,
+        ...restUpdateReviewInput,
         userId,
       };
       // Create a new Review object from the updateReviewInput
       const updatedReviewData = {
         ...existingReview,
         ...updateReviewInputWithUserId,
-        updatedAt: new Date(),
       };
-      const updatedReview = Review.newInstanceFromDTO(updatedReviewData);
+      const updatedReview: ReviewTransform = await this.updateReview(
+        updatedReviewData,
+        existingReview,
+      );
 
-      // Call the updateReview method with the new Review object
-      await this.updateReview(updatedReview, existingReview);
       return updatedReview;
     } catch (error) {
       if (error instanceof UserInputError) {
@@ -227,27 +192,24 @@ export class ReviewService {
     }
   }
 
-  public async deleteById(reviewId: string): Promise<boolean> {
+  public async deleteById(reviewId: string): Promise<ReviewTransform> {
     try {
-      const command = new DeleteItemCommand({
-        TableName: this.tableName,
-        Key: { reviewId: { S: reviewId } },
-        ReturnConsumedCapacity: 'TOTAL',
-        ReturnValues: 'ALL_OLD',
-      });
-      const result = await this.dynamoDBService.getClient().send(command);
-      if (result.Attributes) {
-        const oldReview = Review.newInstanceFromDynamoDBObject(
-          result.Attributes,
-        );
-        await this.updateVotesAndRating(
-          oldReview.bookId,
-          -oldReview.rating,
-          'subtract',
-        );
-        return true;
+      const existReview = await this.reviewRepository.findByReviewId(reviewId);
+      if (!existReview) {
+        throw new UserInputError('This review id already not exist');
       }
-      return false;
+      const result = await this.reviewRepository.deleteById(reviewId);
+      if (!result.success) {
+        throw new InternalServerErrorException('Failed to delete review by ID');
+      }
+      await this.updateVotesAndRating(
+        existReview.bookId,
+        -existReview.rating,
+        'subtract',
+      );
+      const review: ReviewTransform =
+        Review.newInstanceFromDynamoDBDormObject(existReview);
+      return review;
     } catch (error) {
       throw new InternalServerErrorException(
         'Failed to delete review by ID',
@@ -256,49 +218,26 @@ export class ReviewService {
     }
   }
 
-  private async create(newReview: Review): Promise<ReviewResponse> {
-    try {
-      const itemObject: Record<string, AttributeValue> = {
-        reviewId: { S: newReview.reviewId },
-        comment: { S: newReview.comment },
-        bookId: { N: String(newReview.bookId) },
-        userId: { N: String(newReview.userId) },
-        rating: { N: String(newReview.rating) },
-        createdAt: { N: newReview.createdAt.getTime().toString() },
-      };
-      await this.executeCommand(
-        new PutItemCommand({ TableName: this.tableName, Item: itemObject }),
-      );
-      const bookStats = await this.bookStatsService.findByBookId(
-        newReview.bookId,
-      );
-      return {
-        ...newReview,
-        ...bookStats,
-      };
-    } catch (error) {
-      throw new InternalServerErrorException(
-        'Failed to create review',
-        error.message,
-      );
-    }
-  }
-
   private async updateReview(
-    updatedReview: Review,
+    updatedData: Review,
     existingReview: Review,
-  ): Promise<void> {
+  ): Promise<ReviewTransform> {
     try {
-      const itemObject = Review.InstanceToDynamoDBItem(updatedReview);
-      await this.executeCommand(
-        new PutItemCommand({ TableName: this.tableName, Item: itemObject }),
+      const { reviewId, createdAt, updatedAt, ...restUpdatedReview } =
+        updatedData;
+      const review: Review = await this.reviewRepository.updateReview(
+        reviewId,
+        restUpdatedReview,
       );
-      const ratingChange = updatedReview.rating - existingReview.rating;
+      const ratingChange = updatedData.rating - existingReview.rating;
       await this.updateVotesAndRating(
-        updatedReview.bookId,
+        updatedData.bookId,
         ratingChange,
         'update',
       );
+      const updatedReviewTransform: ReviewTransform =
+        Review.newInstanceFromDynamoDBDormObject(review);
+      return updatedReviewTransform;
     } catch (error) {
       throw new InternalServerErrorException(
         'Failed to update review',
@@ -345,134 +284,22 @@ export class ReviewService {
   private async findUserVoteByBookIdAndUserId(
     bookId: number,
     userId: number,
-  ): Promise<Review | null> {
+  ): Promise<ReviewTransform | null> {
     try {
-      const command = new ScanCommand({
-        TableName: this.tableName,
-        FilterExpression: 'bookId = :bookId and userId = :userId',
-        ExpressionAttributeValues: {
-          ':bookId': { N: String(bookId) },
-          ':userId': { N: String(userId) },
-        },
-      });
-      const response = await this.executeCommand(command);
-
-      if (response.Items && response.Items.length > 0) {
-        const item = response.Items[0];
-        const review = Review.newInstanceFromDynamoDBObject(item);
-        return review;
-      } else {
+      const reviewNew: Review =
+        await this.reviewRepository.findByBookIdAndUserId(bookId, userId);
+      if (!reviewNew) {
         return null;
       }
+
+      const review: ReviewTransform =
+        Review.newInstanceFromDynamoDBDormObject(reviewNew);
+      return review;
     } catch (error) {
       throw new InternalServerErrorException(
         'Failed to find user vote',
         error.message,
       );
     }
-  }
-
-  private async createReviewWithoutVoting(
-    createReviewInput: ReviewInput,
-  ): Promise<void> {
-    try {
-      const newReview: Review = Review.newInstanceFromDTO(createReviewInput);
-      const itemObject: Record<string, AttributeValue> = {
-        reviewId: { S: newReview.reviewId },
-        comment: { S: newReview.comment },
-        bookId: { N: String(newReview.bookId) },
-        userId: { N: String(newReview.userId) },
-        rating: { N: String(newReview.rating) },
-        createdAt: { N: newReview.createdAt.getTime().toString() },
-      };
-
-      const command = new PutItemCommand({
-        TableName: this.tableName,
-        Item: itemObject,
-      });
-
-      await this.executeCommand(command);
-    } catch (error) {
-      throw new InternalServerErrorException(
-        'Failed to create new review in DB',
-        error.message,
-      );
-    }
-  }
-  async scanReviews(
-    limit: number,
-    page?: number,
-    offset?: number,
-  ): Promise<{
-    reviews: Review[];
-    totalReviews: number;
-    lastEvaluatedKey: any;
-    firstEvaluatedKey: any;
-  }> {
-    let reviews: Review[] = [];
-    let lastEvaluatedKey: any = null;
-    let totalReviews: number = 0;
-
-    const params: ScanCommandInput = {
-      TableName: this.tableName,
-      TotalSegments: this.totalSegments,
-      Segment: this.segment,
-    };
-
-    const initialParams = { ...params };
-
-    // Handle pagination logic manually
-    if (page && offset) {
-      const targetCount = limit * page + offset;
-
-      while (totalReviews < targetCount) {
-        const command = new ScanCommand({
-          ...initialParams,
-          ExclusiveStartKey: lastEvaluatedKey,
-        });
-
-        const result = await this.executeCommand(command);
-
-        if (result.Items) {
-          reviews = reviews.concat(
-            result.Items.map((item) =>
-              Review.newInstanceFromDynamoDBObject(item),
-            ),
-          );
-        }
-
-        lastEvaluatedKey = result.LastEvaluatedKey;
-        totalReviews += result.Items ? result.Items.length : 0;
-
-        if (!lastEvaluatedKey) {
-          break; // Exit if no more pages
-        }
-      }
-
-      // Slice the result to return only the offset items from the target page
-      reviews = reviews.slice(
-        (page - 1) * limit + offset,
-        page * limit + offset,
-      );
-    } else {
-      const command = new ScanCommand(params);
-      const result = await this.executeCommand(command);
-
-      if (result.Items) {
-        reviews = result.Items.map((item) =>
-          Review.newInstanceFromDynamoDBObject(item),
-        );
-      }
-
-      lastEvaluatedKey = result.LastEvaluatedKey;
-      totalReviews = reviews.length;
-    }
-
-    return {
-      reviews,
-      totalReviews,
-      lastEvaluatedKey,
-      firstEvaluatedKey: reviews.length > 0 ? reviews[0] : null,
-    };
   }
 }

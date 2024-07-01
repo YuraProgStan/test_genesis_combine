@@ -1,233 +1,120 @@
 // Mock the BookService
 import { BookResolver } from './book.resolver';
-import { BookPagination, BookResponse } from './types/book.type';
 import { Book } from './entities/book.entity';
 import { BookStatus } from './enums/book-status';
-import { UserDetails } from '../user/enitites/user-details.entity';
-import { User } from '../user/enitites/user.entity';
+import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+import { BookService } from './book.service';
+import { UserService } from '../user/user.service';
+import { GenreService } from '../genre/genre.service';
+import { NotFoundException } from '@nestjs/common';
+import { User } from '../user/entities/user.entity';
 import { UserRoles } from '../user/enums/user-role.enum';
 import { UserStatus } from '../user/enums/user-status.enum';
 import { Genre } from '../genre/entities/genre.entity';
+import { UserDetails } from '../user/entities/user-details.entity';
 import { ApolloError, UserInputError } from 'apollo-server-express';
+import { BookResponse } from './types/book.type';
 import { CreateBookInputDto } from './dto/create-book.input.dto';
-import { UserWithDetailsWithoutPassword } from '../auth/types/auth.type';
+import { CurrentUserType } from '../user/types/user.type';
 import { UpdateBookInputDto } from './dto/update-book.input.dto';
-
-const mockBookService = {
-  paginate: jest.fn(),
-  findOne: jest.fn(),
-  create: jest.fn(),
-  update: jest.fn(),
-  remove: jest.fn(),
-};
-
-// Mock the BookCacheService
-const mockBookCacheService = {
-  get: jest.fn(),
-  set: jest.fn(),
-};
+import { QueryPagingBookDto } from './dto/query-paging-book.dto';
 
 describe('BookResolver', () => {
   let bookResolver: BookResolver;
+  let mockBookService: {
+    findBookById: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+    paginate: jest.Mock;
+    remove: jest.Mock;
+  };
+  let mockCacheManager: {
+    get: jest.Mock;
+    set: jest.Mock;
+  };
+  const mockConfigService = {
+    get: jest.fn().mockReturnValue('600'),
+  };
 
-  beforeAll(() => {
-    // Create an instance of the resolver with mocked dependencies
-    bookResolver = new BookResolver(
-      mockBookService as any,
-      mockBookCacheService as any,
-    );
+  const createMockBook = (): Book => ({
+    id: 1,
+    title: 'Test Book',
+    description: 'Test Description',
+    content: 'Lorem Ipsum is simply dummy text...',
+    createdAt: new Date('2024-07-01T16:08:54.759Z'),
+    updatedAt: new Date('2024-07-01T16:08:54.759Z'),
+    status: BookStatus.PUBLISHED,
+    authors: [],
+    genres: [],
   });
-  describe('getAllBooksWithPaging', () => {
-    it('should return book pagination', async () => {
-      // Mock the return value of the paginate method
-      const mockPaginationResult: BookPagination = {
-        edges: [],
-        pageInfo: {
-          startCursor: null,
-          endCursor: null,
-          hasNextPage: false,
-          hasPreviousPage: false,
-        },
-        total: 0,
-      };
-      mockBookService.paginate.mockResolvedValueOnce({
-        ...mockPaginationResult,
-        meta: {
-          totalItems: 0,
-          totalPages: 1,
-        },
-        items: [],
-      });
 
-      // Call the resolver method
-      const result = await bookResolver.getAllBooksWithPaging(1, 10);
+  beforeEach(async () => {
+    mockBookService = {
+      findBookById: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      paginate: jest.fn(),
+      remove: jest.fn(),
+    };
+    mockCacheManager = {
+      get: jest.fn(),
+      set: jest.fn(),
+    };
 
-      // Assertions
-      expect(result).toEqual(mockPaginationResult);
-      expect(mockBookService.paginate).toHaveBeenCalledWith(
-        { page: 1, limit: 10 },
-        undefined,
-      );
-    });
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        BookResolver,
+        { provide: BookService, useValue: mockBookService },
+        { provide: 'BOOK_CACHE_MANAGER', useValue: mockCacheManager },
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: GenreService, useValue: {} },
+        { provide: UserService, useValue: {} },
+      ],
+    }).compile();
+
+    bookResolver = module.get<BookResolver>(BookResolver);
   });
 
   describe('findOne', () => {
-    beforeEach(() => {
-      mockBookService.findOne.mockClear();
-    });
-    it('should return a book', async () => {
-      const userDetails1 = new UserDetails();
-      userDetails1.id = 1;
-      userDetails1.email = 'some1@test.com';
-      userDetails1.password = 'testPassword';
-      userDetails1.username = 'testUser';
-      userDetails1.fullname = 'John Dou1';
-      userDetails1.age = 30;
-      userDetails1.createdAt = new Date();
-      userDetails1.updatedAt = new Date();
-
-      const user1 = new User();
-      user1.id = 1;
-      user1.role = UserRoles.AUTHOR;
-      user1.status = UserStatus.ACTIVE;
-      user1.createdAt = new Date();
-      user1.updatedAt = new Date();
-      user1.details = userDetails1;
-      const userDetails2 = new UserDetails();
-      userDetails2.id = 2;
-      userDetails2.email = 'some1@test.com';
-      userDetails2.password = 'testPassword';
-      userDetails2.username = 'Yura1';
-      userDetails2.fullname = 'John Dou1';
-      userDetails2.age = 30;
-      userDetails2.createdAt = new Date();
-      userDetails2.updatedAt = new Date();
-
-      const user2 = new User();
-      user2.id = 2;
-      user2.role = UserRoles.AUTHOR;
-      user2.status = UserStatus.ACTIVE;
-      user2.createdAt = new Date();
-      user2.updatedAt = new Date();
-      user2.details = userDetails2;
-      const mockAuthors: User[] = [user1, user2];
-
-      const mockGenres: Genre[] = [
-        {
-          id: 1,
-          name: 'Fiction',
-          description: 'Description genre',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        {
-          id: 1,
-          name: 'Fiction',
-          description: 'Description genre',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ];
-      const mockBook: Book = {
-        authors: mockAuthors,
-        genres: mockGenres,
-        id: 1,
-        title: 'Test Book',
-        description: 'Test Description',
-        content: 'Lorem Ipsum is simply dummy text...',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        status: BookStatus.PUBLISHED,
-      };
-      mockBookService.findOne.mockResolvedValueOnce(mockBook);
-
-      mockBookCacheService.get.mockResolvedValueOnce(null);
-
-      const result = await bookResolver.findOne(1);
-
-      // Assertions
-      expect(result).toEqual(mockBook);
-      expect(mockBookService.findOne).toHaveBeenCalledWith(1);
-      expect(mockBookCacheService.get).toHaveBeenCalledWith('book:1');
-      expect(mockBookCacheService.set).toHaveBeenCalledWith('book:1', mockBook);
-    });
-
     it('should return a book from cache if available', async () => {
-      const userDetails1 = new UserDetails();
-      userDetails1.id = 1;
-      userDetails1.email = 'some1@test.com';
-      userDetails1.password = 'testPassword';
-      userDetails1.username = 'testUser';
-      userDetails1.fullname = 'John Dou1';
-      userDetails1.age = 30;
-      userDetails1.createdAt = new Date();
-      userDetails1.updatedAt = new Date();
+      const mockCachedBook = createMockBook();
+      mockCacheManager.get.mockResolvedValueOnce(mockCachedBook);
 
-      const user1 = new User();
-      user1.id = 1;
-      user1.role = UserRoles.AUTHOR;
-      user1.status = UserStatus.ACTIVE;
-      user1.createdAt = new Date();
-      user1.updatedAt = new Date();
-      user1.details = userDetails1;
-      const userDetails2 = new UserDetails();
-      userDetails2.id = 2;
-      userDetails2.email = 'some1@test.com';
-      userDetails2.password = 'testPassword';
-      userDetails2.username = 'Yura1';
-      userDetails2.fullname = 'John Dou1';
-      userDetails2.age = 30;
-      userDetails2.createdAt = new Date();
-      userDetails2.updatedAt = new Date();
-
-      const user2 = new User();
-      user2.id = 2;
-      user2.role = UserRoles.AUTHOR;
-      user2.status = UserStatus.ACTIVE;
-      user2.createdAt = new Date();
-      user2.updatedAt = new Date();
-      user2.details = userDetails2;
-      const mockAuthors: User[] = [user1, user2];
-
-      const mockGenres: Genre[] = [
-        {
-          id: 1,
-          name: 'Fiction',
-          description: 'Description genre',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        {
-          id: 1,
-          name: 'Fiction',
-          description: 'Description genre',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ];
-      const mockBook: Book = {
-        authors: mockAuthors,
-        genres: mockGenres,
-        id: 1,
-        title: 'Test Book',
-        description: 'Test Description',
-        content: 'Lorem Ipsum is simply dummy text...',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        status: BookStatus.PUBLISHED,
-      };
-      mockBookCacheService.get.mockResolvedValueOnce(mockBook);
-
-      // Call the resolver method
       const result = await bookResolver.findOne(1);
 
-      // Assertions
+      expect(result).toEqual(mockCachedBook);
+      expect(mockCacheManager.get).toHaveBeenCalledWith('book:1');
+      expect(mockBookService.findBookById).not.toHaveBeenCalled();
+      expect(mockCacheManager.set).not.toHaveBeenCalled();
+    });
+
+    it('should fetch a book from the service and cache it if not cached', async () => {
+      const mockBook = createMockBook();
+      mockCacheManager.get.mockResolvedValueOnce(null);
+      mockBookService.findBookById.mockResolvedValueOnce(mockBook);
+
+      const result = await bookResolver.findOne(1);
+
       expect(result).toEqual(mockBook);
-      expect(mockBookService.findOne).not.toHaveBeenCalled();
-      expect(mockBookCacheService.get).toHaveBeenCalledWith('book:1');
+      expect(mockCacheManager.get).toHaveBeenCalledWith('book:1');
+      expect(mockBookService.findBookById).toHaveBeenCalledWith(1);
+      expect(mockCacheManager.set).toHaveBeenCalledWith('book:1', mockBook);
+    });
+
+    it('should throw a NotFoundException if the book is not found', async () => {
+      mockCacheManager.get.mockResolvedValueOnce(null);
+      mockBookService.findBookById.mockResolvedValueOnce(null);
+
+      await expect(bookResolver.findOne(1)).rejects.toThrow(
+        new NotFoundException('Book with id 1 not found'),
+      );
+
+      expect(mockCacheManager.get).toHaveBeenCalledWith('book:1');
+      expect(mockBookService.findBookById).toHaveBeenCalledWith(1);
+      expect(mockCacheManager.set).not.toHaveBeenCalled();
     });
   });
-
   describe('create', () => {
     const userDetails1 = new UserDetails();
     userDetails1.id = 1;
@@ -236,15 +123,15 @@ describe('BookResolver', () => {
     userDetails1.username = 'testUser';
     userDetails1.fullname = 'John Dou1';
     userDetails1.age = 30;
-    userDetails1.createdAt = new Date();
-    userDetails1.updatedAt = new Date();
+    userDetails1.createdAt = new Date('2024-07-01T16:08:54.759Z');
+    userDetails1.updatedAt = new Date('2024-07-01T16:08:54.759Z');
 
     const user1 = new User();
     user1.id = 1;
     user1.role = UserRoles.AUTHOR;
     user1.status = UserStatus.ACTIVE;
-    user1.createdAt = new Date();
-    user1.updatedAt = new Date();
+    user1.createdAt = new Date('2024-07-01T16:08:54.759Z');
+    user1.updatedAt = new Date('2024-07-01T16:08:54.759Z');
     user1.details = userDetails1;
     const userDetails2 = new UserDetails();
     userDetails2.id = 2;
@@ -253,8 +140,8 @@ describe('BookResolver', () => {
     userDetails2.username = 'Yura1';
     userDetails2.fullname = 'John Dou1';
     userDetails2.age = 30;
-    userDetails2.createdAt = new Date();
-    userDetails2.updatedAt = new Date();
+    userDetails2.createdAt = new Date('2024-07-01T16:08:54.759Z');
+    userDetails2.updatedAt = new Date('2024-07-01T16:08:54.759Z');
 
     const user2 = new User();
     user2.id = 2;
@@ -270,15 +157,15 @@ describe('BookResolver', () => {
         id: 1,
         name: 'Fiction',
         description: 'Description genre',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2024-07-01T16:08:54.759Z'),
+        updatedAt: new Date('2024-07-01T16:08:54.759Z'),
       },
       {
-        id: 1,
-        name: 'Fiction',
+        id: 2,
+        name: 'Horror',
         description: 'Description genre',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2024-07-01T16:08:54.759Z'),
+        updatedAt: new Date('2024-07-01T16:08:54.759Z'),
       },
     ];
     const createBookInputDto: CreateBookInputDto = {
@@ -286,70 +173,12 @@ describe('BookResolver', () => {
       description: 'Test Description',
       content: 'Test Content',
       authors: [1],
-      genres: [],
+      genres: [1, 2],
     };
-    const currentUser: UserWithDetailsWithoutPassword = {
+    const currentUser: CurrentUserType = {
       id: 1,
-      details: {
-        username: 'testUser',
-      },
+      role: UserRoles.AUTHOR,
     };
-
-    it('should add current user as the only author if currentUser is AUTHOR', async () => {
-      const createBookInputDto: CreateBookInputDto = {
-        title: 'Test Book',
-        description: 'Test Description',
-        content: 'Test Content',
-        authors: [1],
-        genres: [1, 2],
-      };
-      const result: BookResponse = {
-        ...createBookInputDto,
-        authors: [currentUser],
-        genres: mockGenres,
-        id: 1,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        status: BookStatus.DRAFT,
-      };
-
-      mockBookService.create.mockResolvedValueOnce(result);
-
-      const response = await bookResolver.create(
-        createBookInputDto,
-        currentUser,
-      );
-
-      expect(response).toEqual(result);
-      expect(mockBookService.create).toHaveBeenCalledWith(
-        { ...createBookInputDto, authors: [currentUser.id] },
-        currentUser,
-      );
-    });
-
-    it('should add current user as author if no authors provided and currentUser is ADMIN or EDITOR', async () => {
-      const adminUser = { ...currentUser, role: UserRoles.ADMIN };
-
-      const result: BookResponse = {
-        ...createBookInputDto,
-        authors: [adminUser],
-        genres: mockGenres,
-        id: 1,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        status: 'PUBLISHED',
-      };
-
-      mockBookService.create.mockResolvedValueOnce(result);
-
-      const response = await bookResolver.create(createBookInputDto, adminUser);
-
-      expect(response).toEqual(result);
-      expect(mockBookService.create).toHaveBeenCalledWith(
-        { ...createBookInputDto, authors: [adminUser.id] },
-        adminUser,
-      );
-    });
 
     it('should call bookService.create with input and currentUser', async () => {
       const result: BookResponse = {
@@ -357,8 +186,8 @@ describe('BookResolver', () => {
         authors: [currentUser],
         genres: mockGenres,
         id: 1,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2024-07-01T16:08:54.759Z'),
+        updatedAt: new Date('2024-07-01T16:08:54.759Z'),
         status: 'PUBLISHED',
       };
 
@@ -374,15 +203,6 @@ describe('BookResolver', () => {
         createBookInputDto,
         currentUser,
       );
-    });
-
-    it('should handle known errors', async () => {
-      const error = new UserInputError('Invalid input');
-      mockBookService.create.mockRejectedValueOnce(error);
-
-      await expect(
-        bookResolver.create(createBookInputDto, currentUser),
-      ).rejects.toThrow(UserInputError);
     });
 
     it('should handle unknown errors', async () => {
@@ -394,20 +214,17 @@ describe('BookResolver', () => {
       ).rejects.toThrow(ApolloError);
     });
   });
-
   describe('update', () => {
     const updateBookInputDto: UpdateBookInputDto = {
+      id: 1,
       title: 'Updated Test Book',
       description: 'Updated Test Description',
       content: 'Updated Test Content',
     };
 
-    const currentUser: UserWithDetailsWithoutPassword = {
+    const currentUser: CurrentUserType = {
       id: 1,
       role: UserRoles.AUTHOR,
-      details: {
-        username: 'testUser',
-      },
     };
     const userDetails1 = new UserDetails();
     userDetails1.id = 1;
@@ -416,15 +233,15 @@ describe('BookResolver', () => {
     userDetails1.username = 'testUser';
     userDetails1.fullname = 'John Dou1';
     userDetails1.age = 30;
-    userDetails1.createdAt = new Date();
-    userDetails1.updatedAt = new Date();
+    userDetails1.createdAt = new Date('2024-07-01T16:08:54.759Z');
+    userDetails1.updatedAt = new Date('2024-07-01T16:08:54.759Z');
 
     const user1 = new User();
     user1.id = 1;
     user1.role = UserRoles.AUTHOR;
     user1.status = UserStatus.ACTIVE;
-    user1.createdAt = new Date();
-    user1.updatedAt = new Date();
+    user1.createdAt = new Date('2024-07-01T16:08:54.759Z');
+    user1.updatedAt = new Date('2024-07-01T16:08:54.759Z');
     user1.details = userDetails1;
     const userDetails2 = new UserDetails();
     userDetails2.id = 2;
@@ -433,8 +250,8 @@ describe('BookResolver', () => {
     userDetails2.username = 'Yura1';
     userDetails2.fullname = 'John Dou1';
     userDetails2.age = 30;
-    userDetails2.createdAt = new Date();
-    userDetails2.updatedAt = new Date();
+    userDetails2.createdAt = new Date('2024-07-01T16:08:54.759Z');
+    userDetails2.updatedAt = new Date('2024-07-01T16:08:54.759Z');
 
     const user2 = new User();
     user2.id = 2;
@@ -450,26 +267,17 @@ describe('BookResolver', () => {
         id: 1,
         name: 'Fiction',
         description: 'Description genre',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2024-07-01T16:08:54.759Z'),
+        updatedAt: new Date('2024-07-01T16:08:54.759Z'),
       },
       {
         id: 1,
         name: 'Fiction',
         description: 'Description genre',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2024-07-01T16:08:54.759Z'),
+        updatedAt: new Date('2024-07-01T16:08:54.759Z'),
       },
     ];
-
-    it('should throw an error if current user is AUTHOR and tries to add multiple authors', async () => {
-      updateBookInputDto.authors = [1, 2];
-
-      await expect(
-        bookResolver.update(1, updateBookInputDto, currentUser),
-      ).rejects.toThrow(ApolloError);
-      expect(mockBookService.update).not.toHaveBeenCalled();
-    });
 
     it('should call bookService.update with input and currentUser for valid request', async () => {
       updateBookInputDto.authors = [1];
@@ -481,8 +289,8 @@ describe('BookResolver', () => {
         authors: mockAuthors,
         genres: mockGenres,
         id: 1,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2024-07-01T16:08:54.759Z'),
+        updatedAt: new Date('2024-07-01T16:08:54.759Z'),
         publicationYear: null,
         status: BookStatus.PUBLISHED,
       };
@@ -490,26 +298,15 @@ describe('BookResolver', () => {
       mockBookService.update.mockResolvedValueOnce(result);
 
       const response = await bookResolver.update(
-        1,
         updateBookInputDto,
         currentUser,
       );
 
       expect(response).toEqual(result);
       expect(mockBookService.update).toHaveBeenCalledWith(
-        1,
         updateBookInputDto,
         currentUser,
       );
-    });
-
-    it('should handle known errors', async () => {
-      const error = new UserInputError('Invalid input');
-      mockBookService.update.mockRejectedValueOnce(error);
-
-      await expect(
-        bookResolver.update(1, updateBookInputDto, currentUser),
-      ).rejects.toThrow(UserInputError);
     });
 
     it('should handle unknown errors', async () => {
@@ -517,10 +314,58 @@ describe('BookResolver', () => {
       mockBookService.update.mockRejectedValueOnce(error);
 
       await expect(
-        bookResolver.update(1, updateBookInputDto, currentUser),
+        bookResolver.update(updateBookInputDto, currentUser),
       ).rejects.toThrow(ApolloError);
     });
   });
+
+  describe('getAllBooksWithPaging', () => {
+    it('should return book pagination', async () => {
+      const queryPagingDto: QueryPagingBookDto = {
+        page: 1,
+        limit: 10,
+        filters: {},
+      };
+
+      const mockPaginationResult = {
+        edges: [
+          {
+            cursor: 'cursor1',
+            node: {
+              id: 1,
+              title: 'Test Book',
+              description: 'A description',
+              content: 'Some content',
+              status: 'published',
+              genres: [],
+              authors: [],
+              createdAt: new Date('2024-07-01T13:44:13.508Z'),
+              updatedAt: new Date('2024-07-01T13:44:13.508Z'),
+            },
+          },
+        ],
+        pageInfo: {
+          endCursor: 'cursor1',
+          hasNextPage: false,
+          hasPreviousPage: false,
+          startCursor: 'cursor1',
+        },
+        total: 1,
+      };
+
+      mockBookService.paginate.mockResolvedValue(mockPaginationResult);
+
+      const result = await bookResolver.getAllBooksWithPaging(queryPagingDto);
+
+      // Assertions
+      expect(result).toEqual(mockPaginationResult);
+      expect(mockBookService.paginate).toHaveBeenCalledWith(
+        { page: queryPagingDto.page, limit: queryPagingDto.limit },
+        queryPagingDto.filters,
+      );
+    });
+  });
+
   describe('remove', () => {
     const userDetails1 = new UserDetails();
     userDetails1.id = 1;
@@ -529,8 +374,8 @@ describe('BookResolver', () => {
     userDetails1.username = 'testUser';
     userDetails1.fullname = 'John Dou1';
     userDetails1.age = 30;
-    userDetails1.createdAt = new Date();
-    userDetails1.updatedAt = new Date();
+    userDetails1.createdAt = new Date('2024-07-01T13:44:13.508Z');
+    userDetails1.updatedAt = new Date('2024-07-01T13:44:13.508Z');
 
     const user1 = new User();
     user1.id = 1;
@@ -546,8 +391,8 @@ describe('BookResolver', () => {
     userDetails2.username = 'Yura1';
     userDetails2.fullname = 'John Dou1';
     userDetails2.age = 30;
-    userDetails2.createdAt = new Date();
-    userDetails2.updatedAt = new Date();
+    userDetails2.createdAt = new Date('2024-07-01T13:44:13.508Z');
+    userDetails2.updatedAt = new Date('2024-07-01T13:44:13.508Z');
 
     const user2 = new User();
     user2.id = 2;
@@ -563,15 +408,15 @@ describe('BookResolver', () => {
         id: 1,
         name: 'Fiction',
         description: 'Description genre',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2024-07-01T13:44:13.508Z'),
+        updatedAt: new Date('2024-07-01T13:44:13.508Z'),
       },
       {
         id: 1,
         name: 'Fiction',
         description: 'Description genre',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2024-07-01T13:44:13.508Z'),
+        updatedAt: new Date('2024-07-01T13:44:13.508Z'),
       },
     ];
     it('should remove a book successfully', async () => {
@@ -582,8 +427,8 @@ describe('BookResolver', () => {
         content: 'Test Content',
         authors: mockAuthors,
         genres: mockGenres,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2024-07-01T13:44:13.508Z'),
+        updatedAt: new Date('2024-07-01T13:44:13.508Z'),
         status: BookStatus.ARCHIVED,
       };
 

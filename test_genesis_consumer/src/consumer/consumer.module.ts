@@ -1,6 +1,5 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { SqsModule } from '../sqs/sqs.module';
-import { DynamoDBModule } from '../dynamodb/dynamodb.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggerService } from '../logger/logger.service';
 import { UserActivitiesModule } from '../user-activities/user-activities.module';
@@ -10,7 +9,6 @@ import { ConsumerService } from './consumer.service';
   imports: [
     ConfigModule, // Ensure ConfigModule is imported
     SqsModule,
-    DynamoDBModule,
     UserActivitiesModule,
   ],
   providers: [ConfigService, LoggerService, ConsumerService],

@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { UserService } from '../user/user.service';
 import * as bcrypt from 'bcrypt';
-import { User } from '../user/enitites/user.entity';
+import { User } from '../user/entities/user.entity';
 import { JwtService, JwtModule } from '@nestjs/jwt';
 import { DefaultCacheModule } from '../cache/default/default-cache.module';
 import { SqsModule } from '../sqs/sqs.module';
@@ -13,7 +13,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { SqsService } from '../sqs/sqs.service';
-import { QUEUE_TYPE, USER_ACTIVITY_TYPE } from '../constants/constants';
+import { QUEUE_TYPE } from '../constants/constants';
+import { ActivityType } from '../user-activities/enums/enums';
 
 describe('AuthService', () => {
   let authService: AuthService;
@@ -215,7 +216,7 @@ describe('AuthService', () => {
         type: QUEUE_TYPE.USER_ACTIVITY,
         payload: {
           userId: mockUser.id,
-          activityType: USER_ACTIVITY_TYPE.USER.USER_SIGNIN,
+          activityType: ActivityType.USER_SIGNIN,
           timestamp: expect.any(String),
         },
       });

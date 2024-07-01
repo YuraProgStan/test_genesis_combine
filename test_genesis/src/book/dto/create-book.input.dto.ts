@@ -1,13 +1,13 @@
 import { Field, ID, InputType } from '@nestjs/graphql';
 import {
-  IsArray,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  Length,
-  Max,
-  Min,
-  MinLength,
+    IsArray, IsInt,
+    IsNotEmpty,
+    IsNumber,
+    IsOptional,
+    Length,
+    Max,
+    Min,
+    MinLength,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import * as sanitizeHtml from 'sanitize-html';
@@ -36,16 +36,18 @@ export class CreateBookInputDto {
     nullable: true,
   })
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1000, { message: 'publicationYear must be at least 1000' })
   @Max(9999, { message: 'publicationYear must be at most 9999' })
   publicationYear?: number;
 
   @Field(() => [ID])
   @IsArray()
+  @Transform(({ value }) => value.map(id => parseInt(id, 10)))
   genres: number[];
 
   @Field(() => [ID])
   @IsArray()
+  @Transform(({ value }) => value.map(id => parseInt(id, 10)))
   authors?: number[];
 }

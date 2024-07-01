@@ -1,16 +1,21 @@
-import { Args, ID, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
+import { Args, ID, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Inject, UseGuards, UseInterceptors } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { Review } from './entities/review.entity';
 import { CreateReviewInput } from './dto/create-review.input';
 import { UpdateReviewInput } from './dto/update-review.input';
-import { ReviewService } from './review.service';
 import { ApolloError, UserInputError } from 'apollo-server-express';
-import { ReviewResponse, ReviewsPage, ReviewsResponse } from './types/types';
+import {
+  ReviewResponse,
+  ReviewsResponse,
+  ReviewTransform,
+} from './types/types';
 import { CurrentUser } from '../user/decorators/users.decorator';
 import { UserExistsInterceptor } from '../user/interceptors/user-exist.interceptor';
 import { ReviewCacheService } from '../cache/review/review-cache.service';
 import { UserWithDetailsWithoutPassword } from '../auth/types/auth.type';
+import { ReviewService } from './review.service';
+import { Review } from './schemas/review.schema';
+import { CurrentUserType } from '../user/types/user.type';
 
 @Resolver(() => Review)
 export class ReviewResolver {
@@ -18,6 +23,7 @@ export class ReviewResolver {
     private readonly reviewService: ReviewService,
     @Inject('REVIEW_CACHE_MANAGER')
     private readonly cacheManager: ReviewCacheService,
+    // eslint-disable-next-line no-empty-function
   ) {}
 
   @Mutation(() => ReviewResponse, { name: 'createReview' })
@@ -25,8 +31,8 @@ export class ReviewResolver {
   @UseInterceptors(UserExistsInterceptor)
   async createReview(
     @Args('createReviewInput') createReviewInput: CreateReviewInput,
-    @CurrentUser() currentUser: UserWithDetailsWithoutPassword,
-  ): Promise<Review> {
+    @CurrentUser() currentUser: CurrentUserType,
+  ): Promise<ReviewTransform> {
     try {
       return await this.reviewService.createOrUpdateVote(
         createReviewInput,
@@ -40,7 +46,7 @@ export class ReviewResolver {
   @Query(() => ReviewResponse, { name: 'review' })
   async getReviewById(
     @Args('reviewId', { type: () => ID }) reviewId: string,
-  ): Promise<Review> {
+  ): Promise<ReviewResponse> {
     try {
       const cacheKey = `book:${reviewId}`;
       const cachedReview = await this.cacheManager.get(cacheKey);
@@ -66,7 +72,7 @@ export class ReviewResolver {
   @Query(() => ReviewsResponse, { name: 'reviewsByBookId' })
   async getReviewsByBookId(
     @Args('bookId') bookId: number,
-  ): Promise<{ reviews: Review[]; totalVotes: number; meanRating: number }> {
+  ): Promise<ReviewsResponse> {
     try {
       const cacheKey = `reviews:bookId:${bookId}`;
       const cachedReviews = await this.cacheManager.get(cacheKey);
@@ -86,14 +92,17 @@ export class ReviewResolver {
   }
 
   @Query(() => [Review], { name: 'reviewsByUserId' })
-  async getReviewsByUserId(@Args('userId') userId: number): Promise<Review[]> {
+  async getReviewsByUserId(
+    @Args('userId') userId: number,
+  ): Promise<ReviewTransform[]> {
     try {
       const cacheKey = `reviews:userId:${userId}`;
       const cachedReviews = await this.cacheManager.get(cacheKey);
       if (cachedReviews) {
         return cachedReviews;
       }
-      const reviews: Review[] = await this.reviewService.findByUserId(userId);
+      const reviews: ReviewTransform[] =
+        await this.reviewService.findByUserId(userId);
       await this.cacheManager.set(cacheKey, reviews);
       return reviews;
     } catch (error) {
@@ -104,71 +113,26 @@ export class ReviewResolver {
     }
   }
 
-  @Query(() => ReviewsPage, { name: 'reviews' })
-  async getReviewsWithPaging(
-    @Args('limit', { type: () => Int }) limit: number,
-    @Args('page', { type: () => Int, nullable: true }) page?: number,
-    @Args('offset', { type: () => Int, nullable: true }) offset?: number,
-  ): Promise<ReviewsPage> {
-    try {
-      const cacheKey = `reviews:${page}:${limit}:${offset}`;
-
-      const cachedReviews = await this.cacheManager.get(cacheKey);
-      if (cachedReviews) {
-        return cachedReviews;
-      }
-      const result = await this.reviewService.scanReviews(limit, page, offset);
-
-      const serializedReviews = result.reviews.map((review) => ({
-        ...review,
-        createdAt: review.createdAt,
-        updatedAt: review.updatedAt ? review.updatedAt : null,
-      }));
-
-      const response = {
-        reviews: serializedReviews,
-        totalReviews: result.totalReviews,
-        lastEvaluatedKey: result.lastEvaluatedKey
-          ? JSON.stringify(result.lastEvaluatedKey)
-          : null,
-        firstEvaluatedKey: result.firstEvaluatedKey
-          ? JSON.stringify(result.firstEvaluatedKey)
-          : null,
-      };
-      await this.cacheManager.set(cacheKey, response);
-      return response;
-    } catch (error) {
-      throw new Error(
-        `Failed to find reviews with pagination: ${error.message}`,
-      );
-    }
-  }
-
-  @Mutation(() => Review, { name: 'updateReview' })
+  @Mutation(() => ReviewTransform, { name: 'updateReview' })
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(UserExistsInterceptor)
   async updateReview(
-    @Args('reviewId') reviewId: string,
     @Args('updateReviewInput') updateReviewInput: UpdateReviewInput,
-    @CurrentUser() currentUser: UserWithDetailsWithoutPassword,
-  ): Promise<Review> {
+    @CurrentUser() currentUser: CurrentUserType,
+  ): Promise<ReviewTransform> {
     try {
-      return await this.reviewService.update(
-        updateReviewInput,
-        reviewId,
-        currentUser.id,
-      );
+      return await this.reviewService.update(updateReviewInput, currentUser.id);
     } catch (error) {
       throw new ApolloError('Failed to update review', 'INTERNAL_SERVER_ERROR');
     }
   }
 
-  @Mutation(() => Boolean, { name: 'removeReview' })
+  @Mutation(() => Review, { name: 'removeReview' })
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(UserExistsInterceptor)
   async removeReview(
     @Args('reviewId', { type: () => ID }) reviewId: string,
-  ): Promise<boolean> {
+  ): Promise<ReviewTransform> {
     try {
       return await this.reviewService.deleteById(reviewId);
     } catch (error) {

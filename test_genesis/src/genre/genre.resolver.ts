@@ -38,7 +38,7 @@ export class GenreResolver {
       if (cachedGenre) {
         return cachedGenre;
       }
-      const genre: Genre = await this.genreService.findOne(id);
+      const genre: Genre = await this.genreService.findGenreById(id);
       await this.cacheManager.set(cacheKey, genre);
       return genre;
     } catch (error) {
@@ -60,12 +60,9 @@ export class GenreResolver {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'editor')
   @Mutation(() => Genre, { name: 'updateGenre' })
-  async update(
-    @Args('id', ParseIntPipe) id: number,
-    @Args('updateGenreInput') updateGenreInput: UpdateGenreInput,
-  ) {
+  async update(@Args('updateGenreInput') updateGenreInput: UpdateGenreInput): Promise<Genre> {
     try {
-      return await this.genreService.update(id, updateGenreInput);
+      return await this.genreService.updateGenre(updateGenreInput);
     } catch (error) {
       throw new ApolloError('Failed to update genre', 'INTERNAL_SERVER_ERROR');
     }
@@ -74,7 +71,7 @@ export class GenreResolver {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'editor')
   @Mutation(() => Genre, { name: 'removeGenre' })
-  async remove(@Args('id', ParseIntPipe) id: number) {
+  async remove(@Args('id', ParseIntPipe) id: number): Promise<Genre> {
     try {
       return await this.genreService.remove(id);
     } catch (error) {

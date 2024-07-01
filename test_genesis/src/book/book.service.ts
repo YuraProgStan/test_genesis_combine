@@ -1,38 +1,30 @@
 import {
-  ForbiddenException,
   forwardRef,
   Inject,
   Injectable,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
 import { Book } from './entities/book.entity';
-import { Repository } from 'typeorm';
 import { UserInputError } from 'apollo-server-express';
-import { Genre } from '../genre/entities/genre.entity';
 import { CreateBookInputDto } from './dto/create-book.input.dto';
 import { UpdateBookInputDto } from './dto/update-book.input.dto';
-import {
-  IPaginationOptions,
-  paginate,
-  Pagination,
-} from 'nestjs-typeorm-paginate';
-import { User } from '../user/enitites/user.entity';
+import { IPaginationMeta, IPaginationOptions } from 'nestjs-typeorm-paginate';
 import { BookStatus } from './enums/book-status';
-import { QUEUE_TYPE, USER_ACTIVITY_TYPE } from '../constants/constants';
+import { QUEUE_TYPE } from '../constants/constants';
 import { SqsService } from '../sqs/sqs.service';
 import { UserService } from '../user/user.service';
 import { GenreService } from '../genre/genre.service';
-import { UserRoles } from '../user/enums/user-role.enum';
 import { stringsToNumbers } from '../utils/stringsToNumbers';
 import { filterNullValues } from '../utils/filterNullVallues';
-import { UserWithDetailsWithoutPassword } from '../auth/types/auth.type';
+import { BookPagination, MessageType } from './types/book.type';
+import { BookRepository } from './book.repository';
+import { CurrentUserType } from '../user/types/user.type';
+import { ActivityType } from '../user-activities/enums/enums';
 
 @Injectable()
 export class BookService {
   constructor(
-    @InjectRepository(Book)
-    private readonly bookRepository: Repository<Book>,
+    private readonly bookRepository: BookRepository,
     private readonly sqsService: SqsService,
     @Inject(forwardRef(() => GenreService))
     private genreService: GenreService,
@@ -43,66 +35,53 @@ export class BookService {
   public async paginate(
     options: IPaginationOptions,
     filters: any = {},
-  ): Promise<Pagination<Book>> {
+  ): Promise<BookPagination> {
     try {
-      const page = Number(options.page);
-      const limit = Number(options.limit);
-
-      if (isNaN(page) || isNaN(limit)) {
+      const { page, limit } = options;
+      if (Number.isNaN(page) || Number.isNaN(limit)) {
         throw new Error('Invalid pagination options');
       }
-      const qb = this.bookRepository
-        .createQueryBuilder('book')
-        .leftJoinAndSelect('book.authors', 'author')
-        .leftJoinAndSelect('author.details', 'details')
-        .leftJoinAndSelect('book.genres', 'genre');
 
-      filters.status = filters.status || BookStatus.PUBLISHED;
-
-      // Apply filters
-      if (filters?.title) {
-        qb.andWhere('book.title LIKE :title', { title: `%${filters.title}%` });
-      }
-      if (filters?.publicationYear) {
-        qb.andWhere('book.publicationYear = :year', {
-          year: filters.publicationYear,
-        });
-      }
-      if (filters?.status) {
-        qb.andWhere('book.status = :status', {
-          status: filters.status,
-        });
-      }
-      if (filters?.author) {
-        qb.andWhere('details.username = :username', {
-          username: filters.author,
-        });
-      }
-
-      if (filters?.sortBy && filters?.sortOrder) {
-        qb.orderBy(
-          `book.${filters.sortBy}`,
-          filters.sortOrder.toUpperCase() as 'ASC' | 'DESC',
-        );
-      } else {
-        qb.orderBy('book.id', 'DESC');
-      }
-      qb.offset((page - 1) * limit).limit(limit);
-      return paginate<Book>(qb, options);
+      const { items, meta } = await this.bookRepository.paginateBooks(
+        options,
+        filters,
+      );
+      return this.buildPaginationResponse(items, meta, Number(page));
     } catch (error) {
       throw new InternalServerErrorException(
         'Failed to get books from DB',
-        error.message,
+        error.stack, // Include the original error message for debugging
       );
     }
   }
 
-  public async findOne(id: number) {
+  private buildPaginationResponse(
+    items: Book[],
+    meta: IPaginationMeta,
+    page: number,
+  ): BookPagination {
+    const startCursor = items.length > 0 ? items[0].id.toString() : null;
+    const endCursor =
+      items.length > 0 ? items[items.length - 1].id.toString() : null;
+
+    return {
+      edges: items.map((item) => ({
+        node: item,
+        cursor: item.id.toString(),
+      })),
+      pageInfo: {
+        startCursor,
+        endCursor,
+        hasNextPage: meta.totalPages > page,
+        hasPreviousPage: page > 1,
+      },
+      total: meta.totalItems,
+    };
+  }
+
+  public async findBookById(id: number) {
     try {
-      const book = await this.bookRepository.findOne({
-        where: { id },
-        relations: ['genres', 'authors', 'authors.details'],
-      });
+      const book = await this.bookRepository.findOneWithRelations(id);
       if (!book) {
         throw new UserInputError(`Book #${id} does not exist`);
       }
@@ -122,122 +101,67 @@ export class BookService {
 
   public async create(
     createBookInputDto: CreateBookInputDto,
-    currentUser: UserWithDetailsWithoutPassword,
+    currentUser: CurrentUserType,
   ) {
     try {
       const { genres, authors, ...bookData } = createBookInputDto;
       const numGenres = stringsToNumbers(genres);
       const numAuthors = stringsToNumbers(authors);
-      const book = this.bookRepository.create(bookData);
-      book.authors = authors.map((authorId) => {
-        const user = new User();
-        user.id = Number(authorId);
-        return user;
-      });
-      if (numGenres.length) {
-        const foundGenres: Genre[] =
-          await this.genreService.findGenresByIds(numGenres);
-        if (foundGenres.length !== numGenres.length) {
-          throw new UserInputError('Some genres do not exist');
-        }
-        book.genres = foundGenres;
-      } else {
-        throw new UserInputError('No genres provided');
-      }
+      const [foundGenres, foundAuthors] = await Promise.all([
+        this.genreService.findGenresByIds(numGenres),
+        this.usersService.findUsersByIds(numAuthors),
+      ]);
+      const bookUpdated: Partial<Book> = { ...bookData };
+      bookUpdated.genres = foundGenres;
+      bookUpdated.authors = foundAuthors;
 
-      let foundAuthors: User[] = [];
-      if (authors && authors.length > 0) {
-        foundAuthors = await this.usersService.findUsersByIds(numAuthors);
-        if (foundAuthors.length !== numAuthors.length) {
-          throw new UserInputError('Some authors do not exist');
-        }
-        book.authors = foundAuthors;
-      } else {
-        const currentUserWithDetails: User =
-          await this.usersService.getUserById(currentUser.id);
-        book.authors = [currentUserWithDetails];
-        foundAuthors = [currentUserWithDetails];
-      }
+      const createdBook: Book =
+        await this.bookRepository.createAndSaveBook(bookUpdated);
 
-      const createdBook = await this.bookRepository.save(book);
-
-      const messageBody = {
-        type: QUEUE_TYPE.USER_ACTIVITY,
-        payload: {
-          userId: currentUser.id,
-          activityType: USER_ACTIVITY_TYPE.BOOK.BOOK_CREATED,
-          timestamp: new Date().toString(),
-        },
-      };
-      await this.sqsService.sendMessage(messageBody);
-
-      // Map the authors to return their usernames
-      const authorsUsernames = foundAuthors
-        .map((author) => {
-          return (
-            author.details &&
-            author.id && {
-              username: author.details.username,
-              id: author.id,
-            }
-          );
-        })
-        .filter(Boolean);
-      const response = {
-        ...createdBook,
-        authors: authorsUsernames,
-      };
-      return response;
+      const userId: number = currentUser.id;
+      await this.sendCreateMessage(userId);
+      return createdBook;
     } catch (error) {
-      if (error instanceof UserInputError) {
-        throw error;
-      } else {
-        throw new InternalServerErrorException(
-          'Failed to create book in DB',
-          error.message,
-        );
-      }
+      throw new InternalServerErrorException(
+        'Failed to create book in DB',
+        error.message,
+      );
     }
   }
 
   public async update(
-    id: number,
     updateBookInputDto: UpdateBookInputDto,
-    currentUser: UserWithDetailsWithoutPassword,
-  ) {
+    currentUser: CurrentUserType,
+  ): Promise<Book> {
     try {
-      const { genres, authors, ...bookData } = updateBookInputDto;
-
-      // Fetch the book and check permissions
-      const book = await this.findOne(id);
-      this.checkPermissions(currentUser, book);
+      const { id, genres, authors, ...bookData } = updateBookInputDto;
 
       // Update genres relation
       if (genres?.length) {
-        await this.updateGenres(id, genres);
+        await this.updateGenresByBookId(id, genres);
       }
 
       // Update authors relation
       if (authors?.length) {
-        await this.updateAuthors(id, authors);
+        await this.updateAuthorsByBookId(id, authors);
       }
 
       // Update book data
-      const filteredBookData = filterNullValues(bookData);
+      const filteredBookData: Partial<Book> = filterNullValues(bookData);
       if (updateBookInputDto.status === BookStatus.PUBLISHED) {
-        filteredBookData['publicationYear'] = Number(new Date().getFullYear());
+        filteredBookData.publicationYear = Number(new Date().getFullYear());
       }
       if (Object.keys(filteredBookData).length) {
-        await this.bookRepository.update(id, filteredBookData);
+        await this.bookRepository.updateBookById(id, filteredBookData);
       }
 
       // Handle publication status
       if (updateBookInputDto.status === BookStatus.PUBLISHED) {
-        await this.sendUpdateMessage(currentUser);
+        const userId: number = currentUser.id;
+        await this.sendUpdateMessage(userId);
       }
 
-      // Fetch and return updated book
-      const updatedBook = await this.findOne(id);
+      const updatedBook = await this.findBookById(id);
       return updatedBook;
     } catch (error) {
       throw new InternalServerErrorException(
@@ -247,108 +171,15 @@ export class BookService {
     }
   }
 
-  private async updateGenres(bookId: number, genreIds: number[]) {
-    await this.bookRepository
-      .createQueryBuilder()
-      .relation(Book, 'genres')
-      .of(bookId)
-      .addAndRemove(
-        genreIds,
-        (await this.getExistingGenreIds(bookId)).filter(
-          (id) => !genreIds.includes(id),
-        ),
-      );
-  }
-
-  private async updateAuthors(bookId: number, authorIds: number[]) {
-    await this.bookRepository
-      .createQueryBuilder()
-      .relation(Book, 'authors')
-      .of(bookId)
-      .addAndRemove(
-        authorIds,
-        (await this.getExistingAuthorIds(bookId)).filter(
-          (id) => !authorIds.includes(id),
-        ),
-      );
-  }
-
-  private checkPermissions(
-    currentUser: UserWithDetailsWithoutPassword,
-    book: Book,
-  ) {
-    if (
-      currentUser.role === UserRoles.AUTHOR &&
-      !book.authors.some((author) => author.id === currentUser.id)
-    ) {
-      throw new ForbiddenException('You can only update your own books');
-    }
-  }
-
-  private async getExistingGenreIds(bookId: number): Promise<number[]> {
-    const book = await this.bookRepository.findOne({
-      where: { id: bookId },
-      relations: ['genres'],
-    });
-    return book.genres.map((genre) => genre.id);
-  }
-
-  private async getExistingAuthorIds(bookId: number): Promise<number[]> {
-    const book = await this.bookRepository.findOne({
-      where: { id: bookId },
-      relations: ['authors'],
-    });
-    return book.authors.map((author) => author.id);
-  }
-
-  // private async getBook(id: number) {
-  //   const book = await this.bookRepository.findOne({
-  //     where: { id },
-  //     relations: ['genres', 'authors'],
-  //   });
-  //
-  //   if (!book) {
-  //     throw new UserInputError(`Book #${id} does not exist`);
-  //   }
-  //
-  //   return book;
-  // }
-
-  private async sendUpdateMessage(currentUser: UserWithDetailsWithoutPassword) {
-    const messageBody = {
-      type: QUEUE_TYPE.USER_ACTIVITY,
-      payload: {
-        userId: currentUser.id,
-        activityType:
-          USER_ACTIVITY_TYPE.BOOK.BOOK_UPDATED_WITH_STATUS_PUBLISHED,
-        timestamp: new Date().toString(),
-      },
-    };
-
-    await this.sqsService.sendMessage(messageBody);
-  }
-
   public async remove(id: number): Promise<Book> {
     try {
-      const book = await this.findOne(id);
-
+      const book = await this.findBookById(id);
       if (!book) {
         throw new UserInputError(`Book #${id} does not exist`);
       }
-
       book.status = BookStatus.ARCHIVED;
-
-      const updatedBook = await this.bookRepository.save(book);
-      const messageBody = {
-        type: QUEUE_TYPE.USER_ACTIVITY,
-        payload: {
-          userId: id,
-          activityType: USER_ACTIVITY_TYPE.BOOK.BOOK_DELETED,
-          timestamp: new Date().toString(),
-        },
-      };
-      await this.sqsService.sendMessage(messageBody);
-
+      const updatedBook = await this.bookRepository.createAndSaveBook(book);
+      await this.sendRemoveMessage(id);
       return updatedBook;
     } catch (error) {
       if (error instanceof UserInputError) {
@@ -362,21 +193,78 @@ export class BookService {
     }
   }
 
-  async updateBookStatusByUserIdForOneAuthorWhichSoftDeleted(userId: number) {
-    const query = `
-        UPDATE book
-        SET status = 'archived'
-        FROM book_authors_user AS ba
-        JOIN "user" AS u ON u.id = ba."userId"
-        WHERE ba."bookId" = book.id
-        AND u.id = $1
-        AND (
-            SELECT COUNT(*)
-            FROM book_authors_user
-            WHERE "bookId" = book.id
-        ) = 1
-    `;
+  public async updateBookStatusByUserIdForOneAuthorWhichSoftDeleted(
+    userId: number,
+  ): Promise<void> {
+    try {
+      await this.bookRepository.updateBookStatusByUserIdForOneAuthorWhichSoftDeleted(
+        userId,
+      );
+    } catch (error) {
+      throw new InternalServerErrorException(
+        'Failed to update book status',
+        error.message,
+      );
+    }
+  }
 
-    await this.bookRepository.query(query, [userId]);
+  private async updateGenresByBookId(bookId: number, genreIds: number[]) {
+    const existingGenreIds: number[] = await this.getExistingGenreIds(bookId);
+    await this.bookRepository.updateGenresByBookId(
+      bookId,
+      genreIds,
+      existingGenreIds,
+    );
+  }
+
+  private async updateAuthorsByBookId(bookId: number, authorIds: number[]) {
+    const existingAuthorIds: number[] = await this.getExistingAuthorIds(bookId);
+    await this.bookRepository.updateAuthorsByBookId(
+      bookId,
+      authorIds,
+      existingAuthorIds,
+    );
+  }
+
+  private async getExistingGenreIds(bookId: number): Promise<number[]> {
+    const book = await this.bookRepository.findOneWithRelationsGenres(bookId);
+    return book.genres.map((genre) => genre.id);
+  }
+
+  private async getExistingAuthorIds(bookId: number): Promise<number[]> {
+    const book = await this.bookRepository.findOneWithRelationsAuthors(bookId);
+    return book.authors.map((author) => author.id);
+  }
+
+  private generateMessage(userId, activityType): MessageType {
+    return {
+      type: QUEUE_TYPE.USER_ACTIVITY,
+      payload: {
+        userId,
+        activityType,
+        timestamp: new Date().toString(),
+      },
+    };
+  }
+
+  private async sendCreateMessage(userId: number) {
+    const message = this.generateMessage(userId, ActivityType.BOOK_CREATED);
+
+    await this.sqsService.sendMessage(message);
+  }
+
+  private async sendUpdateMessage(userId) {
+    const message = this.generateMessage(
+      userId,
+      ActivityType.BOOK_UPDATED_WITH_STATUS_PUBLISHED,
+    );
+
+    await this.sqsService.sendMessage(message);
+  }
+
+  private async sendRemoveMessage(userId) {
+    const message = this.generateMessage(userId, ActivityType.BOOK_DELETED);
+
+    await this.sqsService.sendMessage(message);
   }
 }

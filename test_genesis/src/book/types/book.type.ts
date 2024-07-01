@@ -2,7 +2,6 @@ import {
   ObjectType,
   Field,
   Int,
-  ArgsType,
   InputType,
   ID,
 } from '@nestjs/graphql';
@@ -44,8 +43,7 @@ export class BookPagination {
   @Field(() => Int)
   total: number;
 }
-
-@ArgsType()
+@ObjectType()
 export class PaginationArgs {
   @Field(() => Int, { defaultValue: 1 })
   page: number;
@@ -114,4 +112,20 @@ export class BookResponse {
 
   @Field(() => Date, { nullable: true })
   updatedAt?: Date;
+}
+
+@ObjectType()
+export class MessagePayloadType {
+  userId: number;
+
+  activityType: string;
+
+  timestamp: string;
+}
+
+@ObjectType()
+export class MessageType {
+  type: string;
+
+  payload: MessagePayloadType;
 }

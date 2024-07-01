@@ -4,7 +4,7 @@ import { SqsService } from '../sqs/sqs.service';
 import { Cache } from 'cache-manager';
 import { QUEUE_TYPE } from '../constants/constants';
 import { MessageType } from './types/types';
-import { UserActivityLog } from '../user-activities/entities/user-activity.entity';
+import {UserActivityLog} from "../user-activities/schemas/user-activity.schema";
 
 @Injectable()
 export class ConsumerService {

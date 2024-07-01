@@ -8,15 +8,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { CreateUserInput } from './dto/create-user.input';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, UpdateResult } from 'typeorm';
 import { UserInputError } from 'apollo-server-express';
-import { User } from './enitites/user.entity';
-import { UserDetails } from './enitites/user-details.entity';
+import { User } from './entities/user.entity';
+import { UserDetails } from './entities/user-details.entity';
 import { UpdateUserInput } from './dto/update-user.input';
-import { UserStatus } from './enums/user-status.enum';
 import { SqsService } from '../sqs/sqs.service';
-import { QUEUE_TYPE, USER_ACTIVITY_TYPE } from '../constants/constants';
+import { QUEUE_TYPE } from '../constants/constants';
 import { LoggerService } from '../logger/logger.service';
 import * as bcrypt from 'bcrypt';
 import { ChangePasswordInput } from './dto/change-user-password.dto';
@@ -26,29 +24,31 @@ import { UserRoles } from './enums/user-role.enum';
 import { ConfigService } from '@nestjs/config';
 import { filterNullValues } from '../utils/filterNullVallues';
 import { UserWithDetailsWithoutPassword } from '../auth/types/auth.type';
+import { UserRepository } from './user.repository';
+import { MessageType } from '../book/types/book.type';
+import { UserDetailsRepository } from './user-details.repository';
+import { UserStatus } from './enums/user-status.enum';
+import {DeleteUserResponse} from "./types/user.type";
+import {ActivityType} from "../user-activities/enums/enums";
 
 @Injectable()
 export class UserService {
   constructor(
     @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
-    @InjectRepository(UserDetails)
-    private readonly userDetailsRepository: Repository<UserDetails>,
+    private readonly userRepository: UserRepository,
+    private readonly userDetailsRepository: UserDetailsRepository,
     @Inject(forwardRef(() => BookService))
     private readonly bookService: BookService,
     private readonly sqsService: SqsService,
     private readonly logger: LoggerService,
     private readonly configService: ConfigService,
+    private readonly dataSource: DataSource,
   ) {}
 
-  public async findAll() {
+  public async findAll(): Promise<User[]> {
     try {
-      return await this.userRepository.find({
-        where: { status: UserStatus.ACTIVE },
-        relations: ['books', 'details'],
-      });
+      return await this.userRepository.findAll();
     } catch (error) {
       throw new InternalServerErrorException(
         'Failed to get users from DB',
@@ -57,12 +57,10 @@ export class UserService {
     }
   }
 
-  public async getUserById(id: number) {
+  public async getUserById(id: number): Promise<User> {
     try {
-      const user = await this.userRepository.findOne({
-        where: { id },
-        relations: ['details'],
-      });
+      const user =
+        await this.userRepository.getUserByIdWithRelationsDetails(id);
       this.logger.info('getUserById');
       this.logger.info(JSON.stringify(user));
       if (!user) {
@@ -82,86 +80,35 @@ export class UserService {
       }
     }
   }
-  isPasswordExpectedInResponseData(info: any): boolean {
-    const detailsField = info.fieldNodes[0]?.selectionSet?.selections?.find(
-      (field) => field.name.value === 'details',
-    );
-    return (
-      detailsField?.selectionSet?.selections?.some(
-        (field) => field.name.value === 'password',
-      ) ?? false
-    );
-  }
 
-  public async create(
-    createUserInput: CreateUserInput,
-  ): Promise<UserWithDetailsWithoutPassword> {
-    const queryRunner =
-      this.userRepository.manager.connection.createQueryRunner();
+  public async create(createUserInput: CreateUserInput): Promise<User> {
+    const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const {
-        username,
-        email,
-        password,
-        confirm,
-        fullname,
-        age,
-      }: CreateUserInput = createUserInput;
-
-      if (password !== confirm) {
-        throw new ConflictException('Passwords do not match');
-      }
-
-      const salt = await bcrypt.genSalt();
-      const hashedPassword = await bcrypt.hash(password, salt);
-
-      // Create UserDetails
-      const userDetails = new UserDetails();
-      userDetails.username = username;
-      userDetails.email = email;
-      userDetails.password = hashedPassword;
-      if (fullname) {
-        userDetails.fullname = fullname;
-      }
-      if (age) {
-        userDetails.age = age;
-      }
-
+      const userDetails = await this.createUserDetails(createUserInput);
       const createdDetails = await queryRunner.manager.save(userDetails);
 
-      const user = new User();
-      user.details = createdDetails;
-      if (username === this.configService.get('ROOT_ADMIN_USERNAME'))
-        user.role = UserRoles.ADMIN;
-
-      // Save User
+      const user = await this.createUser(createdDetails);
       const createdUser = await queryRunner.manager.save(user);
 
       await queryRunner.commitTransaction();
 
-      const messageBody = {
-        type: QUEUE_TYPE.USER_ACTIVITY,
-        payload: {
-          userId: createdUser.id,
-          activityType: USER_ACTIVITY_TYPE.USER.USER_SIGNUP,
-          timestamp: new Date().toString(),
-        },
-      };
-      await this.sqsService.sendMessage(messageBody);
+      await this.sendSignUpMessage(createdUser.id);
       this.logger.info(`User created successfully with id: ${createdUser.id}`);
+
       const { password: _, ...userWithoutPassword } = createdUser.details;
       const userWithDetailsWithoutPassword: UserWithDetailsWithoutPassword = {
         ...createdUser,
         details: userWithoutPassword,
       };
 
-      return userWithDetailsWithoutPassword;
+      return createdUser;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`Failed to create user: ${error.message}`);
+
       if (error.code === '23505') {
         throw new ConflictException('Username or email already exists');
       }
@@ -174,71 +121,108 @@ export class UserService {
     }
   }
 
-  public async update(id: number, updateUserInput: UpdateUserInput, currentUser: Partial<User> & Partial<UserDetails>) {
-    try {
-      if (!Object.keys(updateUserInput).length) {
-        throw new UserInputError(
-          `No values for change provided for user ${id}`,
-        );
-      }
+  private async createUserDetails(
+    createUserInput: CreateUserInput,
+  ): Promise<UserDetails> {
+    const { username, email, password, fullname, age } = createUserInput;
 
-      if ('password' in updateUserInput) {
-        throw new UserInputError(
-          'Updating password is not allowed through this endpoint',
-        );
-      }
+    const saltRounds = 10;
+    const salt = bcrypt.genSaltSync(saltRounds);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const userDetails = new UserDetails();
+    userDetails.username = username;
+    userDetails.email = email;
+    userDetails.password = hashedPassword;
+    if (fullname) {
+      userDetails.fullname = fullname;
+    }
+    if (age) {
+      userDetails.age = age;
+    }
+
+    return userDetails;
+  }
+
+  private async createUser(userDetails: UserDetails): Promise<User> {
+    const user = new User();
+    user.details = userDetails;
+
+    const username = userDetails.username;
+    if (username === this.configService.get('ROOT_ADMIN_USERNAME')) {
+      user.role = UserRoles.ADMIN;
+    }
+
+    return user;
+  }
+
+  private generateMessage(userId, activityType): MessageType {
+    return {
+      type: QUEUE_TYPE.USER_ACTIVITY,
+      payload: {
+        userId,
+        activityType,
+        timestamp: new Date().toString(),
+      },
+    };
+  }
+
+  private async sendSignUpMessage(userId: number) {
+    const message = this.generateMessage(
+      userId,
+      ActivityType.USER_SIGNUP,
+    );
+
+    await this.sqsService.sendMessage(message);
+  }
+
+  private async sendUserUpdateMessage(userId: number) {
+    const message = this.generateMessage(
+      userId,
+      ActivityType.USER_UPDATED,
+    );
+
+    await this.sqsService.sendMessage(message);
+  }
+
+  private async sendUserRemoveMessage(userId: number) {
+    const message = this.generateMessage(
+      userId,
+      ActivityType.USER_DELETED,
+    );
+
+    await this.sqsService.sendMessage(message);
+  }
+
+  public async update(id: number, updateUserInput: Partial<UpdateUserInput>) {
+    try {
+
+      // Fetch user and user details
+      const user: User = await this.getUserById(id);
+      const userDetails: UserDetails = user.details;
 
       // Destructure the input to separate user details data
-      const { username, fullname, age, ...userData }: UpdateUserInput =
-        updateUserInput;
+      const { username, fullname, age, ...userData } = updateUserInput;
 
-      // Fetch user details
-      const userDetails = await this.userDetailsRepository.findOne({
-        where: { id },
-      });
-      if (!userDetails) {
-        throw new UserInputError(`User details for user #${id} do not exist`);
-      }
-
-      // Filter out null or undefined values for user details
       const userDetailsFiltered: Partial<UserDetails> = filterNullValues({
         username,
         fullname,
         age,
       });
-
+      // Perform updates
       if (Object.keys(userDetailsFiltered).length) {
-        await this.userDetailsRepository.update(
+        await this.userDetailsRepository.updateUserDetailsById(
           userDetails.id,
           userDetailsFiltered,
         );
       }
-
-      const user = await this.userRepository.findOne({ where: { id } });
-      if (!user) {
-        throw new UserInputError(`User #${id} does not exist`);
-      }
-
       if (Object.keys(userData).length) {
-        await this.userRepository.update(id, userData);
+        await this.userRepository.updateUserById(id, userData);
       }
-
-      const updatedUser = await this.userRepository.findOne({
-        where: { id },
-        relations: ['details'],
-      });
-
-      // Send message to SQS
-      const messageBody = {
-        type: QUEUE_TYPE.USER_ACTIVITY,
-        payload: {
-          userId: user.id,
-          activityType: USER_ACTIVITY_TYPE.USER.USER_UPDATED,
-          timestamp: new Date().toString(),
-        },
-      };
-      await this.sqsService.sendMessage(messageBody);
-
+      // Fetch and return updated user
+      const updatedUser =
+        await this.userRepository.getUserByIdWithRelationsDetails(id);
+      await this.sendUserUpdateMessage(id);
       return updatedUser;
     } catch (error) {
       if (error instanceof UserInputError) {
@@ -256,15 +240,15 @@ export class UserService {
     }
   }
 
-  public async remove(id: number): Promise<{ message: string }> {
+  public async remove(id: number): Promise<DeleteUserResponse> {
     try {
-      // Check if user exists
-      const user = await this.userRepository.findOne({ where: { id } });
+      const user =
+        await this.userRepository.getUserByIdWithRelationsDetails(id);
       if (!user || !user.details) {
         throw new UserInputError(`User with ID ${id} does not exist.`);
       }
       const userDetailsId = user.details.id;
-      await this.userDetailsRepository.delete(userDetailsId);
+      await this.userDetailsRepository.deleteByUserDetailsId(userDetailsId);
 
       await this.bookService.updateBookStatusByUserIdForOneAuthorWhichSoftDeleted(
         id,
@@ -273,17 +257,11 @@ export class UserService {
         `Books for removed user with ID ${id} successfully changed their status to archived.`,
       );
 
-      await this.userRepository.update(id, { status: UserStatus.DELETED });
+      await this.userRepository.updateUserById(id, {
+        status: UserStatus.DELETED,
+      });
 
-      const messageBody = {
-        type: QUEUE_TYPE.USER_ACTIVITY,
-        payload: {
-          userId: user.id,
-          activityType: USER_ACTIVITY_TYPE.USER.USER_DELETED,
-          timestamp: new Date().toString(),
-        },
-      };
-      await this.sqsService.sendMessage(messageBody);
+      await this.sendUserRemoveMessage(user.id);
 
       return { message: `User with ID ${id} has been removed successfully.` };
     } catch (error) {
@@ -298,30 +276,23 @@ export class UserService {
     }
   }
 
-  public async getUserDetailsByEmail(
+  async getUserDetailsByEmail(
     email: string,
   ): Promise<(Partial<User> & Partial<UserDetails>) | null> {
     try {
-      const userWithDetails: Partial<User> & Partial<UserDetails> =
-        await this.userRepository
-          .createQueryBuilder('user')
-          .leftJoinAndSelect('user.details', 'details')
-          .select(['user.id', 'user.role']) // Select only user.id
-          .addSelect(['details.username', 'details.email', 'details.password']) // Select only specific fields from details
-          .where('details.email = :email', { email })
-          .getOne();
+      const userWithDetails =
+        await this.userRepository.getUserDetailsByEmail(email);
+
       if (!userWithDetails) {
-        throw new UserInputError(`User #${email} does not exist`);
+        throw new NotFoundException(`User with email ${email} not found`);
       }
+
       return userWithDetails;
     } catch (error) {
-      if (error instanceof UserInputError) {
+      if (error instanceof NotFoundException) {
         throw error;
       } else {
-        throw new InternalServerErrorException(
-          'Failed to get user from DB',
-          error.message,
-        );
+        throw new UserInputError('Failed to fetch user details', { error });
       }
     }
   }
@@ -332,13 +303,8 @@ export class UserService {
     try {
       const { id, oldPassword, newPassword } = input;
 
-      const userWithDetails = await this.userRepository
-        .createQueryBuilder('user')
-        .leftJoinAndSelect('user.details', 'details')
-        .addSelect('details.password')
-        .addSelect('details.id')
-        .where('user.id = :id', { id })
-        .getOne();
+      const userWithDetails =
+        await this.userRepository.getUserByIdWithDetailsPassword(id);
 
       if (!userWithDetails) {
         throw new NotFoundException('User details not found');
@@ -354,20 +320,20 @@ export class UserService {
 
       const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-      const updateResult = await this.userDetailsRepository.update(
-        userWithDetails.details.id,
-        {
-          password: hashedPassword,
-        },
-      );
+      const updateResult: UpdateResult =
+        await this.userDetailsRepository.updatePasswordById(
+          userWithDetails.details.id,
+          hashedPassword,
+        );
 
       if (updateResult.affected === 1) {
-        return { message: `password for user id equal ${id} successfully updated` };
-      } else {
-        throw new InternalServerErrorException(
-          `Password for user id equal ${id} not correctly updated`,
-        );
+        return {
+          message: `password for user id equal ${id} successfully updated`,
+        };
       }
+      throw new InternalServerErrorException(
+        `Password for user id equal ${id} not correctly updated`,
+      );
     } catch (error) {
       if (
         error instanceof NotFoundException ||
@@ -385,14 +351,30 @@ export class UserService {
 
   public async findUsersByIds(ids) {
     try {
-      const users = await this.userRepository.find({
-        where: { id: In(ids) },
-        relations: ['details'],
-      });
+      const users: User[] = await this.userRepository.findUsersByIds(ids);
       this.logger.info(`Found users successfully with ids: ${ids.join(',')}`);
       return users;
     } catch (error) {
       throw new Error('Internal Server Error');
     }
+  }
+
+  public async getUserRoleById(userId: number): Promise<UserRoles> {
+    const user = await this.userRepository.findUserById(userId);
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+    return user.role;
+  }
+
+  public isPasswordExpectedInResponseData(info: any): boolean {
+    const detailsField = info.fieldNodes[0]?.selectionSet?.selections?.find(
+      (field) => field.name.value === 'details',
+    );
+    return (
+      detailsField?.selectionSet?.selections?.some(
+        (field) => field.name.value === 'password',
+      ) ?? false
+    );
   }
 }
