@@ -1,31 +1,5 @@
 version: '3.8'
 services:
-  api:
-    build:
-      context: ./test_genesis
-      dockerfile: Dockerfile
-    ports:
-      - '3000:3000'
-    depends_on:
-      - redis
-      - postgres
-      - dynamodb
-    env_file:
-      - test_genesis/.env.local
-    networks:
-      - default
-
-  consumer:
-    build:
-      context: ./test_genesis_consumer
-      dockerfile: Dockerfile
-    depends_on:
-      - dynamodb
-    env_file:
-      - test_genesis_consumer/.env.local
-    networks:
-      - default
-
   dynamodb:
     image: 'amazon/dynamodb-local'
     ports:
@@ -54,6 +28,32 @@ services:
     networks:
       - default
 
+  api:
+    build:
+      context: ./test_genesis
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    depends_on:
+      - redis
+      - postgres
+      - dynamodb
+    env_file:
+      - test_genesis/.env
+    networks:
+      - default
+
+  consumer:
+    build:
+      context: ./test_genesis_consumer
+      dockerfile: Dockerfile
+    depends_on:
+      - dynamodb
+    env_file:
+      - ./test_genesis_consumer/.env
+    networks:
+      - default
+
   test:
     build:
       context: ./test_genesis
@@ -66,7 +66,7 @@ services:
       - redis
       - dynamodb
     env_file:
-      - test_genesis/.env.local
+      - test_genesis/.env
     networks:
       - default
 

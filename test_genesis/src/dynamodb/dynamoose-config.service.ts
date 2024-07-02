@@ -19,7 +19,7 @@ export class DynamooseConfigService implements DynamooseOptionsFactory {
         ),
         region: this.configService.get<string>('AWS_REGION'),
       },
-      local: true,
+      local: this.configService.get<string>('DYNAMODB_ENDPOINT'),
       ddb: new DynamoDB({
         endpoint: this.configService.get<string>('DYNAMODB_ENDPOINT'), // specify the local endpoint for DynamoDB Local
       }),
