@@ -6,7 +6,7 @@ import { UserActivitiesRepository } from './user-activities.repository';
 import { DynamooseModule } from 'nestjs-dynamoose';
 import { DYNAMO_DB_TABLES } from '../dynamodb/constants';
 import { UserActivityLogSchema } from './schemas/user-activity.schema';
-import {AuthModule} from "../auth/auth.module";
+import { AuthModule } from '../auth/auth.module';
 @Module({
   imports: [
     DynamooseModule.forFeature([
