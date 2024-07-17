@@ -3,42 +3,54 @@ import {
   Catch,
   ExceptionFilter,
   HttpException,
-  Logger,
+  Injectable,
 } from '@nestjs/common';
 import { GqlArgumentsHost, GqlContextType } from '@nestjs/graphql';
 import { ApolloError } from 'apollo-server-express';
+import { LoggerService } from './logger/logger.service';
+import { stringify } from 'flatted';
 
+@Injectable()
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
-  private readonly logger = new Logger(AllExceptionsFilter.name);
+  constructor(private readonly loggerService: LoggerService) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
-    this.logger.error('Unhandled exception', exception);
+    this.loggerService.error('Unhandled exception', exception);
 
     const gqlHost = GqlArgumentsHost.create(host);
 
     if (host.getType<GqlContextType>() === 'graphql') {
       const gqlContext = gqlHost.getContext();
 
-      this.logger.error(
+      this.loggerService.error(
         'GraphQL Context:',
-        JSON.stringify(gqlContext, null, 2),
+        stringify(gqlContext, null, 2),
       );
 
+      let formattedError;
       if (exception instanceof ApolloError) {
-        this.logger.error('ApolloError:', exception);
-        return exception;
-      }
-
-      if (exception instanceof HttpException) {
+        this.loggerService.error('ApolloError:', exception);
+        formattedError = exception;
+      } else if (exception instanceof HttpException) {
         const response = exception.getResponse();
         const status = exception.getStatus();
-        this.logger.error('HTTP Exception Response:', response);
-        return new ApolloError(response as string, status.toString());
+        this.loggerService.error('HTTP Exception Response:', response);
+
+        const message =
+          typeof response === 'string' ? response : JSON.stringify(response);
+        formattedError = new ApolloError(message, status.toString());
+      } else {
+        this.loggerService.error('Unknown exception:', exception);
+        formattedError = new ApolloError('Internal server error', '500');
       }
 
-      this.logger.error('Unknown exception:', exception);
-      return new ApolloError('Internal server error', '500');
+      // Ensure the error message is a string
+      if (typeof formattedError.message === 'object') {
+        formattedError.message = JSON.stringify(formattedError.message);
+      }
+
+      return formattedError;
     }
 
     // For HTTP requests
@@ -49,14 +61,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const status =
       exception instanceof HttpException ? exception.getStatus() : 500;
 
-    this.logger.error('HTTP Request:', {
+    this.loggerService.error('HTTP Request:', {
       method: request.method,
       url: request.url,
       body: request.body,
     });
 
-    this.logger.error('Response status:', status);
-    this.logger.error('Exception:', exception);
+    this.loggerService.error('Response status:', status);
+    this.loggerService.error('Exception:', exception);
 
     response.status(status).json({
       statusCode: status,

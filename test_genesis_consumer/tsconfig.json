@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "outDir": "./dist/src",  // Output directory for compiled JS files
-    "rootDir": "./src",      // Root directory for TypeScript source files
+    "outDir": "./dist/src",
+    "rootDir": "./src",
     "esModuleInterop": true,
     "strict": true,
     "deleteOutDir": true,

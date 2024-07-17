@@ -13,17 +13,15 @@ export class LoggerService {
           (info) => `${info.timestamp} ${info.level}: ${info.message}`,
         ),
       ),
-      transports: [
-        new transports.File({ filename: 'combined.log' }),
-      ],
+      transports: [new transports.File({ filename: 'combined.log' })],
     });
   }
 
-  info(message: string) {
-    this.logger.info(message);
+  info(message: string, ...args: any[]) {
+    this.logger.info(message, ...args);
   }
 
-  error(message: string) {
-    this.logger.error(message);
+  error(message: string, ...args: any[]) {
+    this.logger.error(message, ...args);
   }
 }

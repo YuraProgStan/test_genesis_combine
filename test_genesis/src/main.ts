@@ -7,8 +7,10 @@ import { AllExceptionsFilter } from './all-exceptions.filter';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { Request, Response } from 'express';
+import { LoggerService } from './logger/logger.service';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const logger: LoggerService = app.get(LoggerService);
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -26,7 +28,7 @@ async function bootstrap() {
   });
 
   app.use('/graphql', limiter);
-  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalFilters(new AllExceptionsFilter(logger));
 
   // Serve static files from the docs directory
   app.useStaticAssets(join(__dirname, '..', 'docs'));

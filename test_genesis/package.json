@@ -46,6 +46,7 @@
     "dynamoose": "^4.0.1",
     "express-rate-limit": "^7.2.0",
     "express-slow-down": "^2.0.3",
+    "flatted": "^3.3.1",
     "graphql": "^16.8.1",
     "ioredis": "^5.4.1",
     "nestjs-dynamoose": "^0.5.8",

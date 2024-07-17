@@ -3,14 +3,22 @@
 # ------------------------------------------------------
 
 type UserDetails {
-  id: Int!
+  id: ID!
   username: String!
   email: String!
   fullname: String
   age: Int
+  createdAt: DateTime!
+  updatedAt: DateTime!
 }
 
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
 type User {
+  id: ID!
   role: UserRoles!
   status: UserStatus!
   createdAt: DateTime!
@@ -32,11 +40,6 @@ enum UserStatus {
   ACTIVE
   DELETED
 }
-
-"""
-A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
-"""
-scalar DateTime
 
 """Genre model"""
 type Genre {
@@ -66,6 +69,7 @@ type Book {
   createdAt: DateTime!
   updatedAt: DateTime!
   authors: [User]
+  genres: [Genre!]
 }
 
 """Book Status Types"""
@@ -76,14 +80,33 @@ enum BookStatus {
   ARCHIVED
 }
 
-type UserDetailsResponse {
-  id: ID!
+type DeleteUserResponse {
+  message: String!
+}
+
+type AuthPayload {
+  access_token: String!
+}
+
+type UserDetailsWithoutPassword {
   username: String!
   email: String!
-  fullname: String
-  age: Int
-  createdAt: DateTime!
-  updatedAt: DateTime!
+}
+
+type MessageResponse {
+  message: String!
+}
+
+type DeleteActivitiesResponse {
+  message: String!
+}
+
+"""User activity log type."""
+type UserActivityLogTransform {
+  activityId: ID!
+  userId: Int!
+  activityType: String!
+  timestamp: DateTime!
 }
 
 type GenreResponse {
@@ -117,73 +140,14 @@ type BookAuthorCreateResponse {
   username: String!
 }
 
-type BookResponse {
-  id: ID!
-  title: String!
-  description: String!
-  content: String!
-  authors: [BookAuthorCreateResponse!]
-  genres: [GenreResponse!]!
-  publicationYear: Int
-  status: String!
-  createdAt: DateTime!
-  updatedAt: DateTime
-}
-
-type UserResponse {
-  id: ID!
-  role: UserRoles!
-  status: UserStatus!
-  details: UserDetailsResponse!
-  books: [BookResponse!]!
-  createdAt: DateTime!
-  updatedAt: DateTime
-}
-
-type PasswordResponse {
-  message: String!
-}
-
-type AuthPayload {
-  access_token: String!
-}
-
-type UserDetailsWithoutPassword {
-  username: String!
-  email: String!
-}
-
-type UserWithDetailsWithoutPassword {
-  details: UserDetailsWithoutPassword!
-  id: Int!
-  role: UserRoles!
-}
-
-type MessageResponse {
-  message: String!
-}
-
-"""User activity log type."""
-type UserActivityLog {
-  activityId: ID!
-  userId: Int!
-  activityType: String!
-  timestamp: DateTime!
-}
-
-type DeleteActivitiesResponse {
-  message: String!
-}
-
-"""Review object type."""
-type Review {
+type ReviewTransform {
   reviewId: ID!
   comment: String!
   bookId: Int!
   userId: Int!
   rating: Int!
-  createdAt: DateTime!
-  updatedAt: DateTime
+  createdAt: String!
+  updatedAt: String!
 }
 
 type ReviewResponse {
@@ -192,65 +156,101 @@ type ReviewResponse {
   bookId: Int!
   userId: Int!
   rating: Int!
-  createdAt: DateTime!
-  updatedAt: DateTime
+  createdAt: String!
+  updatedAt: String!
   totalVotes: Int!
   meanRating: Float!
 }
 
 type ReviewsResponse {
-  reviews: [Review!]!
+  reviews: [ReviewTransform!]!
   totalVotes: Int!
   meanRating: Float!
 }
 
-type ReviewsPage {
-  reviews: [Review!]!
-  totalReviews: Int!
-  lastEvaluatedKey: String
-  firstEvaluatedKey: String
+type Review {
+  reviewId: ID!
+  comment: String!
+  bookId: Int!
+  userId: Int!
+  rating: Int!
+  createdAt: Int!
+  updatedAt: Int!
+}
+
+input SearchBooksInputDto {
+  title: String
+  author: String
+  genre: String
+
+  """Search book publication year"""
+  publicationYear: Int
+  sortBy: CustomBookSortBy
+  sortOrder: String
+}
+
+"""Allowed SorBy Types"""
+enum CustomBookSortBy {
+  TITLE
+  PUBLICATION_YEAR
+  GENRE
+  AUTHOR
+  BOOK_ID
 }
 
 type Query {
-  users: [UserResponse!]!
-  user(id: ID!): UserResponse
+  users: [User!]!
+  user(id: Int!): User
   genres: [Genre!]!
   genre(id: ID!): Genre
-  getActivityLogs(userId: Int!): [UserActivityLog!]!
-  getActivityByType(timestamp: DateTime!, activityType: String!): [UserActivityLog!]!
-  findAllBooks(page: Int!, limit: Int!, filters: BookFilters): BookPagination!
+  getActivityLogs(userId: Int!): [UserActivityLogTransform!]!
+  getActivityByType(getActivityByTypeDto: GetActivityByTypeDto!): [UserActivityLogTransform!]!
+  findAllBooks(queryPagingDto: QueryPagingBookDto!): BookPagination!
   book(id: ID!): Book!
   review(reviewId: ID!): ReviewResponse!
   reviewsByBookId(bookId: Int!): ReviewsResponse!
   reviewsByUserId(userId: Int!): [Review!]!
-  reviews(limit: Int!, page: Int, offset: Int): ReviewsPage!
 }
 
-input BookFilters {
-  title: String
-  publicationYear: Int
-  author: String
-  sortBy: String
-  sortOrder: String
+input GetActivityByTypeDto {
+  timestamp: DateTime!
+  activityType: ActivityType!
+}
+
+"""User and Book Activities Types"""
+enum ActivityType {
+  USER_SIGNUP
+  USER_SIGNIN
+  USER_UPDATED
+  USER_DELETED
+  BOOK_CREATED
+  BOOK_UPDATED_WITH_STATUS_PUBLISHED
+  BOOK_DELETED
+}
+
+input QueryPagingBookDto {
+  page: Int! = 1
+  limit: Int! = 10
+  filters: SearchBooksInputDto
 }
 
 type Mutation {
   signIn(email: String!, password: String!): AuthPayload!
-  signUp(createUserInput: CreateUserInput!): UserWithDetailsWithoutPassword
+  signUp(createUserInput: CreateUserInput!): User
   signOut: MessageResponse!
-  updateUser(id: Int!, updateUserInput: UpdateUserInput!): UserResponse!
-  removeUser(id: Int!): PasswordResponse!
-  changePassword(input: ChangePasswordInput!): PasswordResponse!
+  updateUser(updateUserInput: UpdateUserInput!): User!
+  removeUser(id: Int!): DeleteUserResponse!
+  changePassword(input: ChangePasswordInput!): UserDetails!
   createGenre(createGenreInput: CreateGenreInput!): GenreResponse
-  updateGenre(id: Int!, updateGenreInput: UpdateGenreInput!): Genre!
+  updateGenre(updateGenreInput: UpdateGenreInput!): Genre!
   removeGenre(id: Int!): Genre!
-  removeActivitiesByTimestampAndType(timestamp: DateTime!, activityType: String!): DeleteActivitiesResponse!
-  createBook(createBookInputDto: CreateBookInputDto!): BookResponse!
-  updateBook(id: Int!, updateBookInputDto: UpdateBookInputDto!): Book!
+  removeActivitiesByTimestampAndType(deleteActivityByTypeDto: DeleteActivityByTypeDto!): DeleteActivitiesResponse!
+  createBook(createBookInputDto: CreateBookInputDto!): Book!
+  updateBook(updateBookInputDto: UpdateBookInputDto!): Book!
   removeBook(id: Int!): Book!
   createReview(createReviewInput: CreateReviewInput!): ReviewResponse!
-  updateReview(reviewId: String!, updateReviewInput: UpdateReviewInput!): Review!
-  removeReview(reviewId: ID!): Boolean!
+  updateReview(updateReviewInput: UpdateReviewInput!): ReviewTransform!
+  removeReview(reviewId: ID!): Review!
 }
 
 """Create user object type."""
@@ -304,6 +304,9 @@ input UpdateUserInput {
 
   """Age of the user"""
   age: Int
+
+  """The ID of the user to be updated"""
+  id: ID!
 }
 
 input ChangePasswordInput {
@@ -331,6 +334,14 @@ input UpdateGenreInput {
 
   """Genre description"""
   description: String
+
+  """The ID of the genre to be updated"""
+  id: ID!
+}
+
+input DeleteActivityByTypeDto {
+  timestamp: DateTime!
+  activityType: ActivityType!
 }
 
 """Create book object type."""
@@ -365,6 +376,9 @@ input UpdateBookInputDto {
   genres: [ID!]
   authors: [ID!]
 
+  """The ID of the book to be updated"""
+  id: ID!
+
   """The updated book status"""
   status: BookStatus
 }
@@ -390,4 +404,7 @@ input UpdateReviewInput {
 
   """A new review  rating"""
   rating: Int
+
+  """review id for updated body"""
+  reviewId: String!
 }
